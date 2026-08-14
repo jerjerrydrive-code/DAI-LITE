@@ -1,5 +1,5 @@
 # ============================================================================
-# V3SP3R / Vesper — ProGuard / R8 rules for release builds
+# V3SP3R / Dai — ProGuard / R8 rules for release builds
 # ============================================================================
 
 # ── General Android ─────────────────────────────────────────────────────────
@@ -31,11 +31,11 @@
 -keepattributes RuntimeVisibleAnnotations
 
 # Keep serializers and serializable classes
--keep,includedescriptorclasses class com.vesper.flipper.**$$serializer { *; }
--keepclassmembers class com.vesper.flipper.** {
+-keep,includedescriptorclasses class com.dai.flipper.**$$serializer { *; }
+-keepclassmembers class com.dai.flipper.** {
     *** Companion;
 }
--keepclasseswithmembers class com.vesper.flipper.** {
+-keepclasseswithmembers class com.dai.flipper.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
@@ -89,8 +89,8 @@
 
 # ── App-specific: keep data classes used in serialization / API ─────────────
 
--keep class com.vesper.flipper.ai.** { *; }
--keep class com.vesper.flipper.data.** { *; }
--keep class com.vesper.flipper.voice.VoiceOption { *; }
--keep class com.vesper.flipper.voice.TtsState { *; }
--keep class com.vesper.flipper.voice.TtsState$* { *; }
+-keep class com.dai.flipper.ai.** { *; }
+-keep class com.dai.flipper.data.** { *; }
+-keep class com.dai.flipper.voice.VoiceOption { *; }
+-keep class com.dai.flipper.voice.TtsState { *; }
+-keep class com.dai.flipper.voice.TtsState$* { *; }

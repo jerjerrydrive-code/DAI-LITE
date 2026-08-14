@@ -18,11 +18,11 @@ val localProps = Properties().apply {
 }
 
 android {
-    namespace = "com.vesper.flipper"
+    namespace = "com.dai.flipper"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.vesper.flipper"
+        applicationId = "com.dai.flipper"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -36,9 +36,9 @@ android {
 
     // Release signing — only activated when keystore properties are set.
     // To enable: add these to local.properties (never commit this file):
-    //   RELEASE_STORE_FILE=../keystore/vesper-release.jks
+    //   RELEASE_STORE_FILE=../keystore/dai-release.jks
     //   RELEASE_STORE_PASSWORD=your_store_password
-    //   RELEASE_KEY_ALIAS=vesper
+    //   RELEASE_KEY_ALIAS=dai
     //   RELEASE_KEY_PASSWORD=your_key_password
     val hasSigningConfig = localProps.getProperty("RELEASE_STORE_FILE") != null
 

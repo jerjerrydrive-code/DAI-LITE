@@ -1,4 +1,4 @@
-// Top-level build file for Vesper - AI-Driven Flipper Control on Android
+// Top-level build file for Dai - AI-Driven Flipper Control on Android
 plugins {
     id("com.android.application") version "9.0.1" apply false
     id("org.jetbrains.kotlin.android") version "2.2.10" apply false

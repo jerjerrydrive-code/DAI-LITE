@@ -6,7 +6,7 @@
     android:targetCellHeight="2"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_signal"
-    android:configure="com.vesper.flipper.widget.SignalWidgetConfigActivity"
+    android:configure="com.dai.flipper.widget.SignalWidgetConfigActivity"
     android:previewImage="@drawable/widget_preview"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"

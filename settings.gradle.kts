@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Vesper"
+rootProject.name = "Dai"
 include(":app")

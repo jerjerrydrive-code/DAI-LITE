@@ -1,29 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Vesper Brand Colors — Classy Mythic Cyberpunk Bond -->
-    <color name="vesper_primary">#8B2038</color>
-    <color name="vesper_primary_dark">#5E1625</color>
-    <color name="vesper_secondary">#1A1F2E</color>
-    <color name="vesper_accent">#D4AF37</color>
+    <!-- Dai Brand Colors — Electric Teal / Deep Slate -->
+    <color name="dai_primary">#0E9488</color>
+    <color name="dai_primary_dark">#0A6D63</color>
+    <color name="dai_secondary">#141B2E</color>
+    <color name="dai_accent">#E8A33D</color>
 
     <!-- Surface Colors -->
-    <color name="vesper_surface">#0E1118</color>
-    <color name="vesper_surface_variant">#161B28</color>
-    <color name="vesper_background">#060810</color>
+    <color name="dai_surface">#0B1016</color>
+    <color name="dai_surface_variant">#121A24</color>
+    <color name="dai_background">#05080C</color>
 
     <!-- Text Colors -->
-    <color name="vesper_on_primary">#F5E6EC</color>
-    <color name="vesper_on_surface">#E4E6EE</color>
-    <color name="vesper_on_surface_variant">#8E96AE</color>
+    <color name="dai_on_primary">#E6FBF7</color>
+    <color name="dai_on_surface">#E4E6EE</color>
+    <color name="dai_on_surface_variant">#8E96AE</color>
 
     <!-- Risk Colors -->
     <color name="risk_low">#4CAF7D</color>
-    <color name="risk_medium">#D4AF37</color>
+    <color name="risk_medium">#E8A33D</color>
     <color name="risk_high">#CF4455</color>
     <color name="risk_blocked">#6B7394</color>
 
     <!-- Diff Colors -->
     <color name="diff_added">#3CBF88</color>
     <color name="diff_removed">#CF4455</color>
-    <color name="diff_changed">#D4AF37</color>
+    <color name="diff_changed">#E8A33D</color>
 </resources>

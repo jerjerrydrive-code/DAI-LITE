@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Vesper" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">@color/vesper_primary</item>
-        <item name="android:navigationBarColor">@color/vesper_surface</item>
+    <style name="Theme.Dai" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/dai_primary</item>
+        <item name="android:navigationBarColor">@color/dai_surface</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>
