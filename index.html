@@ -316,6 +316,7 @@ Type a command below or let the assistant propose one.
 
     <label>Device type</label>
     <select id="setDevice">
+      <option value="auto">Auto-detect (Flipper / ESP32 / saved custom)</option>
       <option value="flipper">Flipper Zero</option>
       <option value="esp32">ESP32-S3 (Nordic UART Service)</option>
       <option value="custom">Custom…</option>
@@ -443,14 +444,17 @@ function normalizeSettings(raw){
     baseUrl:       s.baseUrl || "",
     apiKey:        s.apiKey || "",
     model:         s.model || "",
-    deviceProfile: s.deviceProfile || "flipper",
+    deviceProfile: s.deviceProfile || "auto",
     custom:        s.custom || {}
   };
 }
 
-/* Resolve the active device profile from settings (built-in or custom). */
+/* Resolve the active device profile from settings (built-in or custom).
+   "auto" resolves to Flipper as a representative default; the real profile is
+   chosen at connect time by probing the device (see detectProfile). */
 function getActiveProfile(settings){
   const key = (settings && settings.deviceProfile) || "flipper";
+  if(key === "auto") return DEVICE_PROFILES.flipper;
   if(key === "custom"){
     const c = (settings && settings.custom) || {};
     return {
@@ -589,12 +593,61 @@ function stripRunLines(text){
     .join(" ").replace(/\s+/g," ").trim();
 }
 
+/* ---- Auto-detection helpers -------------------------------------------------
+   The web can't silently scan for devices — every connection goes through the
+   browser's chooser after a click. But we CAN detect a device's type: pre-filter
+   the chooser to devices we know how to talk to, then after connecting, probe
+   which known serial service the device actually exposes and pick that profile. */
+
+/* The profiles to try when auto-detecting: the built-ins, plus a saved custom
+   profile if it has complete UUIDs. Order = detection priority. */
+function candidateProfiles(settings){
+  const list = [DEVICE_PROFILES.flipper, DEVICE_PROFILES.esp32];
+  const custom = getActiveProfile({ deviceProfile:"custom", custom:(settings && settings.custom) || {} });
+  if(profileIsComplete(custom)) list.push(custom);
+  return list;
+}
+
+/* Turn a list of profiles into navigator.bluetooth.requestDevice() options:
+   filter the chooser by each profile's name prefix, and (when detecting across
+   several, or when a profile has no name) also by advertised service UUID. */
+function buildRequestOptions(profiles){
+  const optionalServices = [];
+  const filters = [];
+  const svcFiltered = new Set();
+  for(const p of profiles){
+    if(p.service && !optionalServices.includes(p.service)) optionalServices.push(p.service);
+  }
+  for(const p of profiles){
+    if(p.namePrefix) filters.push({ namePrefix: p.namePrefix });
+  }
+  const acrossMany = profiles.length > 1;
+  for(const p of profiles){
+    if(p.service && (acrossMany || !p.namePrefix) && !svcFiltered.has(p.service)){
+      filters.push({ services: [p.service] });
+      svcFiltered.add(p.service);
+    }
+  }
+  // No usable filter (e.g. a custom profile with no name) → show everything.
+  if(!filters.length) return { acceptAllDevices: true, optionalServices };
+  return { filters, optionalServices };
+}
+
+/* Given which service UUIDs a connected device exposes, pick the first matching
+   candidate profile (case-insensitive). Returns null if none match. */
+function matchProfileByServices(profiles, presentServices){
+  const set = new Set((presentServices || []).map(s => String(s).toLowerCase()));
+  for(const p of profiles){ if(p.service && set.has(p.service)) return p; }
+  return null;
+}
+
 /* Expose the pure logic for tests (and for tinkering from the browser console).
    Harmless in the browser; essential for /tests to exercise the shipped code. */
 if(typeof globalThis !== "undefined"){
   globalThis.DAILITE = {
     DEVICE_PROFILES, PRESETS, SERIAL_SERVICE, TX_CHAR, RX_CHAR,
     lineEndingFromCode, normalizeSettings, getActiveProfile, profileIsComplete,
+    candidateProfiles, buildRequestOptions, matchProfileByServices,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseAssistant, stripRunLines
   };
@@ -635,37 +688,71 @@ function termAppend(text, cls){
 function termLine(text, cls){ termAppend(text + "\n", cls); }
 
 /* ---- Bluetooth ---- */
+
+/* Probe a connected device for the first candidate profile whose serial service
+   and characteristics are actually present. This is the "auto-detect" step. */
+async function detectProfile(server, profiles){
+  const present = [];
+  for(const p of profiles){
+    try{ await server.getPrimaryService(p.service); present.push(p.service); }
+    catch(_){ /* this device doesn't expose that service */ }
+  }
+  const chosen = matchProfileByServices(profiles, present);
+  if(!chosen) return null;
+  const service = await server.getPrimaryService(chosen.service);
+  const tx = await service.getCharacteristic(chosen.txChar);
+  const rx = await service.getCharacteristic(chosen.rxChar);
+  return { profile: chosen, txChar: tx, rxChar: rx };
+}
+
 async function connectDevice(){
   if(typeof navigator === "undefined" || !navigator.bluetooth){
     termLine("Web Bluetooth is not available in this browser.", "err");
     return;
   }
-  const profile = getActiveProfile(getSettings());
-  if(!profileIsComplete(profile)){
-    termLine("This device profile is missing its service/characteristic UUIDs. Open ⚙️ Settings and fill them in.", "err");
-    return;
+  const settings = getSettings();
+  const key = settings.deviceProfile || "auto";
+
+  // Decide which profiles to offer/probe. "auto" tries the built-ins + any saved
+  // custom; an explicit choice narrows to that one profile.
+  let profiles;
+  if(key === "auto"){
+    profiles = candidateProfiles(settings);
+  }else{
+    const p = getActiveProfile(settings);
+    if(!profileIsComplete(p)){
+      termLine("This device profile is missing its service/characteristic UUIDs. Open ⚙️ Settings → Device → Custom and fill them in.", "err");
+      return;
+    }
+    profiles = [p];
   }
-  activeProfile = profile;
+
   try{
-    termLine("Requesting a " + profile.label + "…", "sys");
-    // Filter by advertised name when we have a prefix; otherwise show everything.
-    const options = profile.namePrefix
-      ? { filters: [{ namePrefix: profile.namePrefix }], optionalServices: [profile.service] }
-      : { acceptAllDevices: true, optionalServices: [profile.service] };
-    device = await navigator.bluetooth.requestDevice(options);
+    termLine(key === "auto" ? "Scanning for a known device…" : "Requesting a " + profiles[0].label + "…", "sys");
+    device = await navigator.bluetooth.requestDevice(buildRequestOptions(profiles));
     device.addEventListener("gattserverdisconnected", onDisconnected);
 
     termLine("Connecting to " + device.name + "…", "sys");
     gattServer = await device.gatt.connect();
-    const service = await gattServer.getPrimaryService(profile.service);
-    txChar = await service.getCharacteristic(profile.txChar);
-    rxChar = await service.getCharacteristic(profile.rxChar);
 
+    // Auto-detect which profile this device actually speaks.
+    const found = await detectProfile(gattServer, profiles);
+    if(!found){
+      termLine("Connected, but no known serial service was found on this device. If it's custom hardware, open ⚙️ Settings → Device → Custom and enter its UUIDs.", "err");
+      try{ device.gatt.disconnect(); }catch(_){}
+      setConnected(false);
+      return;
+    }
+
+    activeProfile = found.profile;
+    txChar = found.txChar;
+    rxChar = found.rxChar;
     await rxChar.startNotifications();
     rxChar.addEventListener("characteristicvaluechanged", onDeviceData);
 
     setConnected(true, device.name);
-    termLine("Connected to " + profile.label + ". Serial link is live — try `help`.", "sys");
+    setDevTag(activeProfile.label);
+    termLine("Connected to " + device.name + " — detected " + activeProfile.label + ". Serial link is live — try `help`.", "sys");
   }catch(err){
     if(err && err.name === "NotFoundError") termLine("Connection cancelled.", "sys");
     else termLine("Bluetooth error: " + (err && err.message ? err.message : err), "err");
@@ -766,7 +853,9 @@ async function askAI(userText){
   const thinking = addMessage("note", "…thinking");
 
   try{
-    const systemPrompt = buildSystemPrompt(getActiveProfile(s));
+    // Use the profile we actually detected on connect (falls back to the
+    // settings default when not yet connected).
+    const systemPrompt = buildSystemPrompt(activeProfile || getActiveProfile(s));
     const origin = (typeof location !== "undefined") ? location.origin : "";
     const res = await fetch(resolveChatUrl(s.baseUrl), {
       method: "POST",
@@ -828,12 +917,16 @@ function startListening(){
 function stopListening(){ if(recognition && listening){ try{ recognition.stop(); }catch(_){} } }
 
 /* ---- Settings UI ---- */
+function setDevTag(text){ const tag = $("devTag"); if(tag) tag.textContent = text + " CLI"; }
+
+// Reflect the chosen mode in the terminal header (before any device is detected).
 function updateDeviceLabel(){
-  const tag = $("devTag"); if(!tag) return;
-  const p = getActiveProfile(getSettings());
-  tag.textContent = p.label + " CLI";
+  const s = getSettings();
+  const key = s.deviceProfile || "auto";
+  setDevTag(key === "auto" ? "Auto-detect" : getActiveProfile(s).label);
 }
 function describeProfile(key){
+  if(key === "auto")    return "Pre-filters the chooser to Flipper, ESP32, and any saved custom device, then detects which one you picked.";
   if(key === "flipper") return "Service " + SERIAL_SERVICE;
   if(key === "esp32")   return "Nordic UART Service " + DEVICE_PROFILES.esp32.service;
   return "Enter your board's BLE serial UUIDs below.";
@@ -874,6 +967,7 @@ function saveSettings(){
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   $("settingsOverlay").classList.remove("show");
+  activeProfile = getActiveProfile(getSettings()); // keep system-prompt device in sync
   updateDeviceLabel();
 }
 
@@ -968,9 +1062,10 @@ function featureCheck(){
 function boot(){
   wire();
   featureCheck();
+  activeProfile = getActiveProfile(getSettings());
   updateDeviceLabel();
   maybeShowSafety();
-  addMessage("note", "Hold 🎙️ to talk, or type below. Pick your AI provider and device in ⚙️ Settings, then Connect.");
+  addMessage("note", "Hold 🎙️ to talk, or type below. Pick your AI provider and device in ⚙️ Settings, then Connect. Device type defaults to Auto-detect.");
 }
 if(typeof document !== "undefined" && document.getElementById && document.getElementById("term")){
   boot();

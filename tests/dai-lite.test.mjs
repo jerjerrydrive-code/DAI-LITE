@@ -64,6 +64,61 @@ test("getActiveProfile builds a custom profile from settings (lowercased, trimme
   assert.equal(p.lineEnding, "\n");    // "lf" -> \n
 });
 
+/* ---- Auto-detection ---- */
+test("candidateProfiles offers the built-ins by default", () => {
+  const list = D.candidateProfiles({});
+  assert.deepEqual(list.map((p) => p.key), ["flipper", "esp32"]);
+});
+
+test("candidateProfiles appends a complete saved custom profile", () => {
+  const list = D.candidateProfiles({
+    custom: { namePrefix: "MyBoard", service: "abcd", txChar: "1234", rxChar: "5678" },
+  });
+  assert.deepEqual(list.map((p) => p.key), ["flipper", "esp32", "custom"]);
+});
+
+test("candidateProfiles ignores an incomplete custom profile", () => {
+  const list = D.candidateProfiles({ custom: { namePrefix: "X" } }); // no UUIDs
+  assert.deepEqual(list.map((p) => p.key), ["flipper", "esp32"]);
+});
+
+test("buildRequestOptions for a single Flipper matches the spec filter exactly", () => {
+  const opts = D.buildRequestOptions([D.DEVICE_PROFILES.flipper]);
+  assert.deepEqual(opts, {
+    filters: [{ namePrefix: "Flipper" }],
+    optionalServices: ["8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000"],
+  });
+});
+
+test("buildRequestOptions in auto mode filters by both names and both services", () => {
+  const opts = D.buildRequestOptions([D.DEVICE_PROFILES.flipper, D.DEVICE_PROFILES.esp32]);
+  assert.ok(opts.filters.some((f) => f.namePrefix === "Flipper"));
+  assert.ok(opts.filters.some((f) => f.namePrefix === "ESP32"));
+  assert.ok(opts.filters.some((f) => Array.isArray(f.services) && f.services[0] === D.DEVICE_PROFILES.flipper.service));
+  assert.ok(opts.filters.some((f) => Array.isArray(f.services) && f.services[0] === D.DEVICE_PROFILES.esp32.service));
+  assert.equal(opts.optionalServices.length, 2);
+});
+
+test("buildRequestOptions falls back to a service filter when a profile has no name", () => {
+  const custom = { key: "custom", label: "C", namePrefix: "", service: "svc-x", txChar: "t", rxChar: "r" };
+  const opts = D.buildRequestOptions([custom]);
+  assert.deepEqual(opts, { filters: [{ services: ["svc-x"] }], optionalServices: ["svc-x"] });
+});
+
+test("buildRequestOptions shows all devices when nothing is filterable", () => {
+  const bare = { key: "custom", label: "C", namePrefix: "", service: "", txChar: "", rxChar: "" };
+  const opts = D.buildRequestOptions([bare]);
+  assert.equal(opts.acceptAllDevices, true);
+});
+
+test("matchProfileByServices picks the profile whose service is present (case-insensitive)", () => {
+  const profiles = [D.DEVICE_PROFILES.flipper, D.DEVICE_PROFILES.esp32];
+  assert.equal(D.matchProfileByServices(profiles, [D.DEVICE_PROFILES.esp32.service]).key, "esp32");
+  assert.equal(D.matchProfileByServices(profiles, ["8FE5B3D5-2E7F-4A98-2A48-7ACC60FE0000"]).key, "flipper"); // upper-case
+  assert.equal(D.matchProfileByServices(profiles, ["nothing-known"]), null);
+  assert.equal(D.matchProfileByServices(profiles, []), null);
+});
+
 test("profileIsComplete requires all three UUIDs", () => {
   assert.equal(D.profileIsComplete(D.DEVICE_PROFILES.flipper), true);
   assert.equal(D.profileIsComplete({ service: "x", txChar: "y" }), false);
@@ -254,12 +309,12 @@ test("provider presets have the exact spec Base URLs", () => {
 /* ========================================================================
    Settings normalization
    ======================================================================== */
-test("normalizeSettings shapes bad / partial input safely", () => {
+test("normalizeSettings shapes bad / partial input safely (defaults to auto-detect)", () => {
   assert.deepEqual(D.normalizeSettings(null), {
-    baseUrl: "", apiKey: "", model: "", deviceProfile: "flipper", custom: {},
+    baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
   });
   assert.deepEqual(D.normalizeSettings("not json"), {
-    baseUrl: "", apiKey: "", model: "", deviceProfile: "flipper", custom: {},
+    baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
   });
   const s = D.normalizeSettings('{"baseUrl":"u","deviceProfile":"esp32"}');
   assert.equal(s.baseUrl, "u");
