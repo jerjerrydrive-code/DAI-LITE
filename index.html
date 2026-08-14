@@ -249,6 +249,7 @@ Type a command below or let the assistant propose one.
       <div class="cmdbar">
         <input id="cmdInput" placeholder="Manual command, e.g. device_info" autocomplete="off" spellcheck="false" />
         <button id="cmdSend" class="btn accent">Send</button>
+        <button id="toAiBtn" class="btn" title="Send the latest device output back to the assistant">→ AI</button>
       </div>
     </section>
 
@@ -503,7 +504,8 @@ How to respond:
       RUN: help
 - The app shows the user a "Run" button for each such line. The user must press it.
   NEVER assume a command already ran, and NEVER invent command output. After the
-  user runs something, its real output appears and they can tell you what happened.
+  user runs something, they can send the device's real output back to you with the
+  "→ AI" button; use that output, and ask for it when you need to see a result.
 - Prefer safe, read-only/status commands first.
 - Before anything that transmits RF, emulates credentials, deletes data, or is
   otherwise high-impact, warn briefly and remind the user they are responsible for
@@ -641,6 +643,26 @@ function matchProfileByServices(profiles, presentServices){
   return null;
 }
 
+/* ---- Closing the loop: device output -> AI ----------------------------------
+   The core idea is that the AI can "read its responses back". Device output
+   streams into the terminal; these helpers let the user hand the latest output
+   back to the assistant as context for its next reply. */
+
+/* Append streamed text to a rolling capture buffer, keeping only the tail. */
+function appendCapture(buffer, text, cap){
+  cap = cap || 4000;
+  const s = String(buffer == null ? "" : buffer) + String(text == null ? "" : text);
+  return s.length > cap ? s.slice(-cap) : s;
+}
+
+/* Format captured output as a tidy message the model can read. */
+function formatDeviceOutput(command, output){
+  const cmd = String(command == null ? "" : command).trim();
+  const body = String(output == null ? "" : output).trim();
+  const head = cmd ? ("Device output for `" + cmd + "`:") : "Device output:";
+  return head + "\n```\n" + body + "\n```";
+}
+
 /* Expose the pure logic for tests (and for tinkering from the browser console).
    Harmless in the browser; essential for /tests to exercise the shipped code. */
 if(typeof globalThis !== "undefined"){
@@ -648,6 +670,7 @@ if(typeof globalThis !== "undefined"){
     DEVICE_PROFILES, PRESETS, SERIAL_SERVICE, TX_CHAR, RX_CHAR,
     lineEndingFromCode, normalizeSettings, getActiveProfile, profileIsComplete,
     candidateProfiles, buildRequestOptions, matchProfileByServices,
+    appendCapture, formatDeviceOutput,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseAssistant, stripRunLines
   };
@@ -667,6 +690,8 @@ const synth = (typeof window !== "undefined" && window.speechSynthesis) ? window
 const SR = (typeof window !== "undefined") ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 let recognition = null, listening = false, sendOnEnd = false;
 let conversation = [];   // running history: [{role:'user'|'assistant', content}]
+let captureBuffer = "";  // most recent device output (rolling), for "send to AI"
+let lastCommand = "";    // the command whose output we're capturing
 
 /* ---- Settings (localStorage) ---- */
 const SETTINGS_KEY = "dailite_settings";
@@ -777,6 +802,8 @@ async function sendCommand(command){
       else await txChar.writeValue(chunk);
     }
     termLine("> " + command, "cmd");
+    lastCommand = command;   // start a fresh capture window for this command's output
+    captureBuffer = "";
     return true;
   }catch(err){
     termLine("Write failed: " + (err && err.message ? err.message : err), "err");
@@ -784,10 +811,13 @@ async function sendCommand(command){
   }
 }
 
-/* Notification handler: decode incoming bytes as UTF-8, stream into terminal. */
+/* Notification handler: decode incoming bytes as UTF-8, stream into terminal and
+   into the rolling capture buffer (so the latest output can be sent to the AI). */
 function onDeviceData(event){
   const text = rxDecoder ? rxDecoder.decode(event.target.value, { stream:true }) : "";
-  if(text) termAppend(text, "rx");
+  if(!text) return;
+  termAppend(text, "rx");
+  captureBuffer = appendCapture(captureBuffer, text);
 }
 
 /* ---- Chat rendering ---- */
@@ -844,14 +874,31 @@ function makeRunRow(command){
 }
 
 /* ---- AI request ---- */
+
+// The user typed/spoke a question: show it as a bubble, then get a reply.
 async function askAI(userText){
+  conversation.push({ role:"user", content:userText });
+  addMessage("user", userText);
+  await runAiTurn();
+}
+
+// Send the latest captured device output back to the assistant as context.
+function sendCapturedOutput(){
+  const out = captureBuffer.trim();
+  if(!out){ addMessage("note", "No device output captured yet — run a command first."); return; }
+  const content = formatDeviceOutput(lastCommand, out);
+  conversation.push({ role:"user", content });
+  // Render compactly so a big dump doesn't dominate the chat.
+  addMessage("note", "Sent device output" + (lastCommand ? " for `" + lastCommand + "`" : "") + " to the assistant.");
+  runAiTurn();
+}
+
+// Shared network turn: assumes the latest user message is already in `conversation`.
+async function runAiTurn(){
   const s = getSettings();
   if(!s.baseUrl){ addMessage("error", "Set an AI Base URL in ⚙️ Settings first."); return; }
 
-  conversation.push({ role:"user", content:userText });
-  addMessage("user", userText);
   const thinking = addMessage("note", "…thinking");
-
   try{
     // Use the profile we actually detected on connect (falls back to the
     // settings default when not yet connected).
@@ -1005,6 +1052,7 @@ function wire(){
 
   $("cmdSend").addEventListener("click", sendManualCommand);
   $("cmdInput").addEventListener("keydown", e => { if(e.key === "Enter") sendManualCommand(); });
+  $("toAiBtn").addEventListener("click", sendCapturedOutput);
 
   $("chatSend").addEventListener("click", sendChat);
   $("chatInput").addEventListener("keydown", e => { if(e.key === "Enter") sendChat(); });

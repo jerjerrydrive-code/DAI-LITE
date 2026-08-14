@@ -230,6 +230,38 @@ test("stripRunLines removes commands and collapses whitespace for TTS", () => {
 });
 
 /* ========================================================================
+   Device output -> AI (closing the loop)
+   ======================================================================== */
+test("appendCapture accumulates streamed text", () => {
+  let buf = "";
+  buf = D.appendCapture(buf, "line1\n");
+  buf = D.appendCapture(buf, "line2");
+  assert.equal(buf, "line1\nline2");
+});
+
+test("appendCapture keeps only the tail once past the cap", () => {
+  const buf = D.appendCapture("", "abcdefghij", 4); // cap = 4
+  assert.equal(buf, "ghij");
+  const grown = D.appendCapture("wxyz", "1234", 4);
+  assert.equal(grown, "1234");
+});
+
+test("appendCapture tolerates null inputs", () => {
+  assert.equal(D.appendCapture(null, null), "");
+  assert.equal(D.appendCapture(undefined, "x"), "x");
+});
+
+test("formatDeviceOutput fences the output and names the command", () => {
+  const msg = D.formatDeviceOutput("power info", "  Battery: 87%  ");
+  assert.equal(msg, "Device output for `power info`:\n```\nBattery: 87%\n```");
+});
+
+test("formatDeviceOutput handles a missing command", () => {
+  const msg = D.formatDeviceOutput("", "hello");
+  assert.equal(msg, "Device output:\n```\nhello\n```");
+});
+
+/* ========================================================================
    AI request building
    ======================================================================== */
 test("resolveChatUrl joins the path without doubling slashes", () => {
