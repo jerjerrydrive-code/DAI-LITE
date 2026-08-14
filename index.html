@@ -1,0 +1,783 @@
+<!--
+  DAI-LITE — an AI voice companion for the Flipper Zero.
+  Single-file, no-backend, no-build web app. Runs entirely in the browser
+  (Chrome/Edge on Android or desktop). Inspired by the discontinued AIPI Lite.
+
+  MIT License
+  Copyright (c) 2026 DAI-LITE contributors
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+  Everything (HTML/CSS/JS) is inline in this one file on purpose, so it is easy
+  to read, fork, host anywhere, or just open from disk. Beginners welcome — the
+  comments explain what each part does.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>DAI-LITE — Flipper Zero AI Voice Companion</title>
+<style>
+  /* ---------- Theme tokens (dark, teal primary, copper accent) ---------- */
+  :root{
+    --bg:        #0b0f10;   /* app background            */
+    --panel:     #111819;   /* panel surfaces            */
+    --panel-2:   #0e1415;   /* inputs / terminal body    */
+    --border:    #1f2c2e;   /* hairline borders          */
+    --text:      #e7eef0;   /* primary text              */
+    --muted:     #8ca0a4;   /* secondary text            */
+    --teal:      #0E9488;   /* primary                   */
+    --teal-hi:   #14b5a6;   /* primary hover             */
+    --copper:    #E8A33D;   /* accent                    */
+    --danger:    #e0574f;   /* errors / disconnect       */
+    --ok:        #35c48a;   /* connected                 */
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html, body{
+    margin:0; height:100%;
+    background:var(--bg); color:var(--text);
+    font-family:var(--sans);
+    overflow-x:hidden;              /* never allow horizontal page scroll */
+    -webkit-text-size-adjust:100%;
+  }
+  button{ font-family:inherit; }
+
+  /* ---------- App shell ---------- */
+  .app{ display:flex; flex-direction:column; min-height:100%; }
+
+  /* ---------- Top bar ---------- */
+  header{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 12px;
+    background:linear-gradient(180deg,#101b1c,#0d1516);
+    border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:20;
+  }
+  .brand{ display:flex; align-items:center; gap:9px; min-width:0; }
+  .logo{
+    width:30px; height:30px; border-radius:8px; flex:0 0 auto;
+    background:radial-gradient(circle at 30% 30%, var(--teal-hi), var(--teal) 70%);
+    display:grid; place-items:center; color:#04211f; font-weight:800; font-size:14px;
+    box-shadow:0 0 0 1px rgba(255,255,255,.06) inset;
+  }
+  .brand h1{ font-size:15px; margin:0; letter-spacing:.5px; white-space:nowrap; }
+  .brand small{ color:var(--copper); font-weight:600; }
+  .spacer{ flex:1 1 auto; }
+
+  .status{
+    display:flex; align-items:center; gap:7px;
+    font-size:12px; color:var(--muted);
+    padding:5px 9px; border:1px solid var(--border); border-radius:20px;
+    background:var(--panel-2); white-space:nowrap;
+  }
+  .dot{ width:9px; height:9px; border-radius:50%; background:var(--danger); box-shadow:0 0 8px currentColor; }
+  .status.connected{ color:var(--ok); }
+  .status.connected .dot{ background:var(--ok); }
+
+  .btn{
+    border:1px solid var(--border); background:var(--panel-2); color:var(--text);
+    padding:8px 12px; border-radius:9px; cursor:pointer; font-size:13px; font-weight:600;
+    transition:background .15s, border-color .15s, opacity .15s;
+  }
+  .btn:hover{ border-color:var(--teal); }
+  .btn.primary{ background:var(--teal); border-color:var(--teal); color:#03211e; }
+  .btn.primary:hover{ background:var(--teal-hi); border-color:var(--teal-hi); }
+  .btn.icon{ padding:8px 10px; }
+  .btn.accent{ border-color:var(--copper); color:var(--copper); }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; }
+  .btn.on{ background:var(--copper); border-color:var(--copper); color:#241403; }
+
+  /* ---------- Main two-panel layout ---------- */
+  .main{
+    display:grid; gap:10px; padding:10px;
+    grid-template-columns:1fr 1fr;              /* two columns on desktop  */
+    height:calc(100vh - 53px);                  /* fill viewport under bar */
+    min-height:0;
+  }
+  .panel{
+    display:flex; flex-direction:column; min-width:0; min-height:0;
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    overflow:hidden;
+  }
+  .panel > .head{
+    display:flex; align-items:center; gap:8px;
+    padding:9px 12px; border-bottom:1px solid var(--border);
+    font-size:12px; letter-spacing:.6px; text-transform:uppercase; color:var(--muted);
+  }
+  .panel > .head .tag{ color:var(--teal); font-weight:700; }
+  .panel > .head .tag.ai{ color:var(--copper); }
+
+  /* ---------- Terminal (left) ---------- */
+  #term{
+    flex:1 1 auto; min-height:0;
+    padding:10px 12px; margin:0;
+    font-family:var(--mono); font-size:12.5px; line-height:1.5;
+    color:#cfe6e2; background:var(--panel-2);
+    white-space:pre-wrap; word-break:break-word;
+    overflow-y:auto; overflow-x:auto;
+  }
+  #term .sys{ color:var(--muted); }
+  #term .cmd{ color:var(--copper); }        /* echoed outgoing commands */
+  #term .rx{ color:#bfe9df; }               /* data received from Flipper */
+  #term .err{ color:var(--danger); }
+
+  .cmdbar{ display:flex; gap:8px; padding:8px; border-top:1px solid var(--border); }
+  .cmdbar input{
+    flex:1; min-width:0;
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:9px 10px; font-family:var(--mono); font-size:13px;
+  }
+  .cmdbar input:focus{ outline:none; border-color:var(--teal); }
+
+  /* ---------- Chat (right) ---------- */
+  #chat{ flex:1 1 auto; min-height:0; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .msg{ max-width:92%; padding:9px 12px; border-radius:12px; font-size:14px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+  .msg.user{ align-self:flex-end; background:var(--teal); color:#04211e; border-bottom-right-radius:4px; }
+  .msg.ai{ align-self:flex-start; background:#15211f; border:1px solid var(--border); border-bottom-left-radius:4px; }
+  .msg.note{ align-self:center; background:transparent; color:var(--muted); font-size:12px; text-align:center; max-width:100%; }
+  .msg.err{ align-self:center; background:rgba(224,87,79,.12); border:1px solid var(--danger); color:#ffb4ae; font-size:13px; }
+  .msg .role{ display:block; font-size:10px; letter-spacing:.7px; text-transform:uppercase; opacity:.7; margin-bottom:3px; }
+
+  /* A proposed command inside an AI message — never auto-runs. */
+  .run{
+    display:flex; align-items:center; gap:8px; margin-top:8px;
+    background:var(--panel-2); border:1px solid var(--copper);
+    border-radius:9px; padding:7px 8px;
+  }
+  .run code{ flex:1; min-width:0; font-family:var(--mono); font-size:12.5px; color:var(--copper); overflow-x:auto; white-space:pre; }
+  .run .go{ flex:0 0 auto; background:var(--copper); border:none; color:#241403; font-weight:700; padding:6px 12px; border-radius:7px; cursor:pointer; }
+  .run.done .go{ background:var(--teal); color:#04211e; }
+
+  .chatbar{ display:flex; gap:8px; padding:8px; border-top:1px solid var(--border); align-items:center; }
+  .chatbar input{
+    flex:1; min-width:0;
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:11px 12px; font-size:14px;
+  }
+  .chatbar input:focus{ outline:none; border-color:var(--teal); }
+  /* Push-to-talk mic: hold to speak */
+  #mic{ flex:0 0 auto; width:46px; height:46px; border-radius:50%; display:grid; place-items:center; font-size:18px; user-select:none; touch-action:none; }
+  #mic.listening{ background:var(--copper); border-color:var(--copper); color:#241403; animation:pulse 1s infinite; }
+  @keyframes pulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(232,163,61,.5);} 50%{ box-shadow:0 0 0 8px rgba(232,163,61,0);} }
+
+  /* ---------- Modal (settings + safety notice) ---------- */
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.68); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
+  .overlay.show{ display:flex; }
+  .modal{ width:100%; max-width:440px; max-height:90vh; overflow-y:auto; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; }
+  .modal h2{ margin:0 0 4px; font-size:17px; }
+  .modal h2 .accent{ color:var(--copper); }
+  .modal p{ color:var(--muted); font-size:13px; line-height:1.5; }
+  .modal label{ display:block; font-size:12px; color:var(--muted); margin:12px 0 5px; letter-spacing:.3px; }
+  .modal input{ width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:13px; font-family:var(--mono); }
+  .modal input:focus{ outline:none; border-color:var(--teal); }
+  .presets{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .presets .btn{ font-size:12px; padding:7px 10px; }
+  .modal .row{ display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+  .hint{ font-size:11px; color:var(--muted); margin-top:6px; }
+  .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
+  .warn-box strong{ color:var(--copper); }
+
+  /* ---------- Responsive: stack panels on narrow screens ---------- */
+  @media (max-width: 820px){
+    .brand h1{ font-size:14px; }
+    .main{
+      grid-template-columns:1fr;      /* single column, stacked */
+      height:auto;                    /* let the page grow / scroll vertically */
+    }
+    #term{ min-height:34vh; }
+    #chat{ min-height:40vh; }
+    .status .txt{ display:none; }      /* keep the top bar compact on phones */
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= TOP BAR ================= -->
+  <header>
+    <div class="brand">
+      <div class="logo">DL</div>
+      <h1>DAI&#8209;LITE <small>· Flipper AI</small></h1>
+    </div>
+    <div class="spacer"></div>
+    <div id="status" class="status"><span class="dot"></span><span class="txt">Disconnected</span></div>
+    <button id="muteBtn" class="btn icon" title="Mute / unmute the assistant voice">🔊</button>
+    <button id="settingsBtn" class="btn icon" title="AI provider settings">⚙️</button>
+    <button id="connectBtn" class="btn primary">Connect</button>
+  </header>
+
+  <!-- ================= MAIN ================= -->
+  <main class="main">
+
+    <!-- LEFT: live Flipper CLI terminal -->
+    <section class="panel">
+      <div class="head"><span class="tag">Flipper CLI</span><span class="spacer" style="flex:1"></span><span id="devname" style="text-transform:none;letter-spacing:0"></span></div>
+      <pre id="term"><span class="sys">DAI-LITE terminal ready. Connect a Flipper Zero to begin.
+Type a command below or let the assistant propose one.
+</span></pre>
+      <div class="cmdbar">
+        <input id="cmdInput" placeholder="Manual command, e.g. device_info" autocomplete="off" spellcheck="false" />
+        <button id="cmdSend" class="btn accent">Send</button>
+      </div>
+    </section>
+
+    <!-- RIGHT: AI voice / chat conversation -->
+    <section class="panel">
+      <div class="head"><span class="tag ai">Assistant</span></div>
+      <div id="chat"></div>
+      <div class="chatbar">
+        <button id="mic" class="btn icon" title="Hold to talk">🎙️</button>
+        <input id="chatInput" placeholder="Ask the assistant…" autocomplete="off" />
+        <button id="chatSend" class="btn primary">Send</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ================= SETTINGS MODAL ================= -->
+<div id="settingsOverlay" class="overlay">
+  <div class="modal">
+    <h2>AI Provider <span class="accent">Settings</span></h2>
+    <p>DAI-LITE talks to any OpenAI-compatible <code>/chat/completions</code> endpoint. Keys are stored only in this browser (localStorage) — never sent anywhere but the provider you choose.</p>
+
+    <label>Presets</label>
+    <div class="presets">
+      <button class="btn" data-preset="openrouter">OpenRouter</button>
+      <button class="btn" data-preset="nvidia">NVIDIA</button>
+      <button class="btn" data-preset="ollama">Ollama (local)</button>
+    </div>
+
+    <label>Base URL</label>
+    <input id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" spellcheck="false" />
+
+    <label>API Key</label>
+    <input id="setApiKey" type="password" placeholder="sk-…" spellcheck="false" />
+    <div class="hint">Local Ollama ignores the key — leave it blank.</div>
+
+    <label>Model</label>
+    <input id="setModel" placeholder="e.g. openai/gpt-4o-mini  ·  meta/llama-3.1-70b-instruct  ·  llama3.1" spellcheck="false" />
+
+    <div class="row">
+      <button id="setCancel" class="btn">Close</button>
+      <button id="setSave" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ONE-TIME SAFETY NOTICE ================= -->
+<div id="safetyOverlay" class="overlay">
+  <div class="modal">
+    <h2>⚠️ Before you <span class="accent">start</span></h2>
+    <div class="warn-box">
+      <strong>This app controls real RF and hardware.</strong>
+      DAI-LITE can command a physical Flipper Zero to transmit radio signals, emulate
+      access credentials, run scripts, and modify files. Transmitting on certain
+      frequencies, cloning cards, or accessing systems you don't own may be illegal.
+    </div>
+    <p><strong>You are solely responsible</strong> for legal, authorized, and ethical use.
+    Only operate hardware and signals you own or have explicit permission to test.
+    Every command the assistant proposes must be confirmed by you with the <em>Run</em>
+    button — nothing executes on its own.</p>
+    <div class="row">
+      <button id="safetyOk" class="btn primary">I understand — continue</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   DAI-LITE application logic
+   Sections:  (1) Flipper Bluetooth  (2) Terminal  (3) AI chat  (4) Voice
+              (5) Settings  (6) Safety notice  (7) Feature detection / wiring
+   ========================================================================= */
+
+/* ---- Exact Flipper Zero BLE Serial UUIDs (from the task spec) ---- */
+const SERIAL_SERVICE = "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000";
+const TX_CHAR        = "19ed82ae-ed21-4c9d-4145-228e62fe0000"; // phone -> Flipper (write)
+const RX_CHAR        = "19ed82ae-ed21-4c9d-4145-228e61fe0000"; // Flipper -> phone (notify)
+
+/* Small helpers */
+const $ = (id) => document.getElementById(id);
+const enc = new TextEncoder();
+const rxDecoder = new TextDecoder();       // stream-decodes incoming UTF-8
+
+/* Shared connection state */
+let device = null, gattServer = null, txChar = null, rxChar = null;
+
+/* =========================================================================
+   (1) FLIPPER BLUETOOTH
+   ========================================================================= */
+async function connectFlipper(){
+  if(!navigator.bluetooth){
+    termLine("Web Bluetooth is not available in this browser.", "err");
+    return;
+  }
+  try{
+    termLine("Requesting a Flipper Zero…", "sys");
+    // Filter by name prefix; must list the service as optional to use it later.
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "Flipper" }],
+      optionalServices: [SERIAL_SERVICE]
+    });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+
+    termLine("Connecting to " + device.name + "…", "sys");
+    gattServer = await device.gatt.connect();
+    const service = await gattServer.getPrimaryService(SERIAL_SERVICE);
+    txChar = await service.getCharacteristic(TX_CHAR);
+    rxChar = await service.getCharacteristic(RX_CHAR);
+
+    // Listen for data the Flipper sends back and print it to the terminal.
+    await rxChar.startNotifications();
+    rxChar.addEventListener("characteristicvaluechanged", onFlipperData);
+
+    setConnected(true, device.name);
+    termLine("Connected. CLI is live — try `device_info`.", "sys");
+  }catch(err){
+    // requestDevice throws if the user cancels the chooser — that's fine.
+    if(err && err.name === "NotFoundError"){
+      termLine("Connection cancelled.", "sys");
+    }else{
+      termLine("Bluetooth error: " + (err && err.message ? err.message : err), "err");
+    }
+    setConnected(false);
+  }
+}
+
+function onDisconnected(){
+  setConnected(false);
+  txChar = null; rxChar = null; gattServer = null;
+  termLine("Flipper disconnected.", "err");
+}
+
+/* Send a CLI command: UTF-8 text + carriage return, chunked into 20-byte writes. */
+async function sendToFlipper(command){
+  if(!txChar){
+    termLine("Not connected — connect a Flipper first.", "err");
+    return false;
+  }
+  const bytes = enc.encode(command + "\r");
+  try{
+    for(let i = 0; i < bytes.length; i += 20){
+      const chunk = bytes.slice(i, i + 20);      // BLE payloads are small, so chunk it
+      // Prefer write-without-response when supported; fall back to write-with-response.
+      if(txChar.writeValueWithoutResponse) await txChar.writeValueWithoutResponse(chunk);
+      else await txChar.writeValue(chunk);
+    }
+    termLine("> " + command, "cmd");             // echo what we sent
+    return true;
+  }catch(err){
+    termLine("Write failed: " + (err && err.message ? err.message : err), "err");
+    return false;
+  }
+}
+
+/* Notification handler: decode incoming bytes as UTF-8 and stream into terminal. */
+function onFlipperData(event){
+  const text = rxDecoder.decode(event.target.value, { stream: true });
+  if(text) termAppend(text, "rx");
+}
+
+/* =========================================================================
+   (2) TERMINAL PANEL
+   ========================================================================= */
+const term = $("term");
+
+// Append raw text (used for streaming RX data) inside a colored span.
+function termAppend(text, cls){
+  const span = document.createElement("span");
+  if(cls) span.className = cls;
+  span.textContent = text;
+  term.appendChild(span);
+  trimTerminal();
+  term.scrollTop = term.scrollHeight;
+}
+// Append a whole line (adds its own newline). Used for local status messages.
+function termLine(text, cls){ termAppend(text + "\n", cls); }
+
+// Keep the terminal from growing without bound.
+function trimTerminal(){
+  while(term.childNodes.length > 600) term.removeChild(term.firstChild);
+}
+
+/* =========================================================================
+   (3) AI CHAT
+   ========================================================================= */
+const chat = $("chat");
+let conversation = [];   // running history: [{role:'user'|'assistant', content}]
+
+// System prompt: teaches the model how to drive the Flipper and how to
+// propose commands so the app can render a confirm-before-run button.
+const SYSTEM_PROMPT =
+`You are DAI-LITE, a concise AI assistant that helps the user operate a Flipper Zero
+over its text-based command-line interface (CLI) through a Bluetooth link.
+
+How to respond:
+- Reply in plain, short language suitable for reading aloud.
+- Whenever a Flipper CLI command should be run, put it ON ITS OWN LINE beginning
+  EXACTLY with "RUN: " — for example:
+      RUN: storage list /ext
+- The app shows the user a "Run" button for each such line. The user must press it.
+  NEVER assume a command already ran, and NEVER invent command output. After the
+  user runs something, its real output appears and they can tell you what happened.
+- Prefer safe, read-only commands first (device_info, power info, storage list).
+- Before anything that transmits RF, emulates credentials, deletes files, or is
+  otherwise high-impact, warn briefly and remind the user they are responsible for
+  legal, authorized use only.
+
+Handy Flipper CLI commands:
+  help                     list available commands
+  device_info              hardware / firmware info
+  power info               battery and charge state
+  storage info /ext        SD card usage
+  storage list /ext        list the SD card root
+  storage read <path>      print a file
+  vibro 1 / vibro 0        buzz the motor on / off
+  led r 255                set the LED (r/g/b 0-255)
+  subghz / ir / nfc ...    RF, infrared and NFC subsystems (higher risk)`;
+
+// Render a chat bubble. `content` for AI is parsed for RUN: lines.
+function addMessage(role, content){
+  const div = document.createElement("div");
+  if(role === "user"){
+    div.className = "msg user";
+    div.appendChild(roleTag("You"));
+    div.appendChild(document.createTextNode(content));
+  }else if(role === "assistant"){
+    div.className = "msg ai";
+    div.appendChild(roleTag("DAI-LITE"));
+    renderAssistant(div, content);
+  }else if(role === "error"){
+    div.className = "msg err";
+    div.textContent = content;
+  }else{
+    div.className = "msg note";
+    div.textContent = content;
+  }
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+function roleTag(t){ const s = document.createElement("span"); s.className="role"; s.textContent=t; return s; }
+
+// Split assistant text into prose + "RUN:" command lines with a Run button each.
+function renderAssistant(container, content){
+  const lines = content.split("\n");
+  let prose = [];
+  const flushProse = () => {
+    if(prose.join("\n").trim().length){
+      const p = document.createElement("div");
+      p.textContent = prose.join("\n").trim();
+      container.appendChild(p);
+    }
+    prose = [];
+  };
+  for(const line of lines){
+    const m = line.match(/^\s*RUN:\s*(.+?)\s*$/);
+    if(m){
+      flushProse();
+      container.appendChild(makeRunRow(m[1]));
+    }else{
+      prose.push(line);
+    }
+  }
+  flushProse();
+}
+
+// A single "proposed command" row — the ONLY way the AI's command reaches hardware.
+function makeRunRow(command){
+  const row = document.createElement("div");
+  row.className = "run";
+  const code = document.createElement("code");
+  code.textContent = command;
+  const go = document.createElement("button");
+  go.className = "go";
+  go.textContent = "Run";
+  go.addEventListener("click", async () => {
+    const ok = await sendToFlipper(command);   // user explicitly confirmed
+    if(ok){ row.classList.add("done"); go.textContent = "Sent ✓"; }
+  });
+  row.appendChild(code);
+  row.appendChild(go);
+  return row;
+}
+
+// Send the whole conversation to the configured OpenAI-compatible endpoint.
+async function askAI(userText){
+  const s = getSettings();
+  if(!s.baseUrl){
+    addMessage("error", "Set an AI Base URL in ⚙️ Settings first.");
+    return;
+  }
+  conversation.push({ role:"user", content:userText });
+  addMessage("user", userText);
+
+  const thinking = addMessage("note", "…thinking");
+  try{
+    const url = s.baseUrl.replace(/\/+$/,"") + "/chat/completions";
+    const headers = { "Content-Type":"application/json" };
+    if(s.apiKey) headers["Authorization"] = "Bearer " + s.apiKey;
+
+    const res = await fetch(url, {
+      method:"POST",
+      headers,
+      body: JSON.stringify({
+        model: s.model || "gpt-4o-mini",
+        messages: [{ role:"system", content:SYSTEM_PROMPT }, ...conversation],
+        temperature: 0.4,
+        stream: false
+      })
+    });
+    thinking.remove();
+
+    if(!res.ok){
+      const detail = await res.text().catch(()=> "");
+      addMessage("error", "AI error " + res.status + ": " + detail.slice(0,300));
+      return;
+    }
+    const data = await res.json();
+    const reply = data && data.choices && data.choices[0] &&
+                  data.choices[0].message && data.choices[0].message.content;
+    if(!reply){ addMessage("error", "The AI returned an empty response."); return; }
+
+    conversation.push({ role:"assistant", content:reply });
+    addMessage("assistant", reply);
+    speak(stripRunLines(reply));                 // read the prose aloud (not raw commands)
+  }catch(err){
+    thinking.remove();
+    addMessage("error", "Request failed: " + (err && err.message ? err.message : err) +
+      "  (Check the Base URL, your key, and CORS support for this provider.)");
+  }
+}
+
+// Remove RUN: lines so text-to-speech doesn't read raw commands out loud.
+function stripRunLines(text){
+  return text.split("\n").filter(l => !/^\s*RUN:/.test(l)).join(" ").replace(/\s+/g," ").trim();
+}
+
+/* =========================================================================
+   (4) VOICE — SpeechRecognition (input) + SpeechSynthesis (output)
+   ========================================================================= */
+let muted = false;
+const synth = window.speechSynthesis || null;
+
+function speak(text){
+  if(muted || !synth || !text) return;
+  synth.cancel();                                // don't overlap replies
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.02;
+  synth.speak(u);
+}
+
+// Push-to-talk speech recognition (hold the mic button).
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, listening = false, sendOnEnd = false;
+
+function setupRecognition(){
+  if(!SR) return;
+  recognition = new SR();
+  recognition.lang = "en-US";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+
+  recognition.onresult = (e) => {
+    let transcript = "";
+    for(let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+    $("chatInput").value = transcript;           // live-fill the text box
+  };
+  recognition.onend = () => {
+    listening = false;
+    $("mic").classList.remove("listening");
+    // When the user releases the button, send what was heard.
+    if(sendOnEnd && $("chatInput").value.trim()){ sendChat(); }
+    sendOnEnd = false;
+  };
+  recognition.onerror = () => { /* ignore; onend still fires */ };
+}
+
+function startListening(){
+  if(!recognition || listening) return;
+  try{
+    sendOnEnd = true; listening = true;
+    $("chatInput").value = "";
+    $("mic").classList.add("listening");
+    recognition.start();
+  }catch(_){ listening = false; $("mic").classList.remove("listening"); }
+}
+function stopListening(){
+  if(!recognition || !listening) return;
+  try{ recognition.stop(); }catch(_){}
+}
+
+/* =========================================================================
+   (5) SETTINGS (localStorage)
+   ========================================================================= */
+const SETTINGS_KEY = "dailite_settings";
+const PRESETS = {
+  openrouter: { baseUrl:"https://openrouter.ai/api/v1",        model:"openai/gpt-4o-mini" },
+  nvidia:     { baseUrl:"https://integrate.api.nvidia.com/v1", model:"meta/llama-3.1-70b-instruct" },
+  // Ollama runs on your LAN and ignores the API key. Replace LAN-IP with your host.
+  ollama:     { baseUrl:"http://LAN-IP:11434/v1",              model:"llama3.1" }
+};
+
+function getSettings(){
+  try{ return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }
+  catch(_){ return {}; }
+}
+function openSettings(){
+  const s = getSettings();
+  $("setBaseUrl").value = s.baseUrl || "";
+  $("setApiKey").value  = s.apiKey  || "";
+  $("setModel").value   = s.model   || "";
+  $("settingsOverlay").classList.add("show");
+}
+function saveSettings(){
+  const s = {
+    baseUrl: $("setBaseUrl").value.trim(),
+    apiKey:  $("setApiKey").value.trim(),
+    model:   $("setModel").value.trim()
+  };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  $("settingsOverlay").classList.remove("show");
+}
+
+/* =========================================================================
+   (6) ONE-TIME SAFETY NOTICE
+   ========================================================================= */
+const ACK_KEY = "dailite_safety_ack";
+function maybeShowSafety(){
+  if(!localStorage.getItem(ACK_KEY)) $("safetyOverlay").classList.add("show");
+}
+
+/* =========================================================================
+   (7) CONNECTION STATUS + FEATURE DETECTION + EVENT WIRING
+   ========================================================================= */
+function setConnected(connected, name){
+  const el = $("status");
+  el.classList.toggle("connected", connected);
+  el.querySelector(".txt").textContent = connected ? "Connected" : "Disconnected";
+  $("devname").textContent = connected && name ? name : "";
+  $("connectBtn").textContent = connected ? "Disconnect" : "Connect";
+}
+
+function toggleConnect(){
+  if(gattServer && gattServer.connected){ device.gatt.disconnect(); }
+  else{ connectFlipper(); }
+}
+
+function sendManualCommand(){
+  const v = $("cmdInput").value.trim();
+  if(!v) return;
+  sendToFlipper(v);
+  $("cmdInput").value = "";
+}
+
+function sendChat(){
+  const v = $("chatInput").value.trim();
+  if(!v) return;
+  $("chatInput").value = "";
+  askAI(v);
+}
+
+function wire(){
+  // Top bar
+  $("connectBtn").addEventListener("click", toggleConnect);
+  $("settingsBtn").addEventListener("click", openSettings);
+  $("muteBtn").addEventListener("click", () => {
+    muted = !muted;
+    if(muted && synth) synth.cancel();
+    $("muteBtn").textContent = muted ? "🔇" : "🔊";
+    $("muteBtn").classList.toggle("on", muted);
+  });
+
+  // Terminal / manual command input
+  $("cmdSend").addEventListener("click", sendManualCommand);
+  $("cmdInput").addEventListener("keydown", e => { if(e.key === "Enter") sendManualCommand(); });
+
+  // Chat
+  $("chatSend").addEventListener("click", sendChat);
+  $("chatInput").addEventListener("keydown", e => { if(e.key === "Enter") sendChat(); });
+
+  // Push-to-talk mic (pointer events cover mouse + touch). Hold to speak.
+  const mic = $("mic");
+  mic.addEventListener("pointerdown", e => { e.preventDefault(); startListening(); });
+  mic.addEventListener("pointerup",   stopListening);
+  mic.addEventListener("pointerleave",stopListening);
+  mic.addEventListener("pointercancel",stopListening);
+
+  // Settings modal
+  $("setSave").addEventListener("click", saveSettings);
+  $("setCancel").addEventListener("click", () => $("settingsOverlay").classList.remove("show"));
+  document.querySelectorAll("[data-preset]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = PRESETS[btn.dataset.preset];
+      if(!p) return;
+      $("setBaseUrl").value = p.baseUrl;
+      $("setModel").value   = p.model;
+    });
+  });
+
+  // Safety notice
+  $("safetyOk").addEventListener("click", () => {
+    localStorage.setItem(ACK_KEY, "1");
+    $("safetyOverlay").classList.remove("show");
+  });
+
+  // Dismiss any modal by clicking the dark backdrop (but not the safety one).
+  $("settingsOverlay").addEventListener("click", e => {
+    if(e.target === $("settingsOverlay")) $("settingsOverlay").classList.remove("show");
+  });
+}
+
+// Detect unsupported browsers and degrade gracefully with plain messages.
+function featureCheck(){
+  if(!navigator.bluetooth){
+    $("connectBtn").disabled = true;
+    $("connectBtn").textContent = "No Bluetooth";
+    $("connectBtn").title = "Web Bluetooth is unavailable. Use Chrome or Edge on Android or desktop.";
+    termLine("Web Bluetooth isn't supported here. Open DAI-LITE in Chrome or Edge (Android/desktop) to connect a Flipper.", "err");
+  }
+  if(SR){ setupRecognition(); }
+  else{
+    const mic = $("mic");
+    mic.disabled = true;
+    mic.title = "Voice input needs the Web Speech API — use Chrome or Edge. You can still type.";
+    mic.style.opacity = ".45";
+  }
+  if(!synth){
+    const m = $("muteBtn");
+    m.disabled = true; m.style.opacity = ".45";
+    m.title = "Text-to-speech isn't available in this browser.";
+  }
+}
+
+// ---- Boot ----
+wire();
+featureCheck();
+maybeShowSafety();
+addMessage("note", "Hold 🎙️ to talk, or type below. Set your AI provider in ⚙️ Settings, then Connect your Flipper.");
+</script>
+</body>
+</html>
