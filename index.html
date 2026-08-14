@@ -196,6 +196,11 @@
   .hint{ font-size:11px; color:var(--muted); margin-top:6px; }
   .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
   .warn-box strong{ color:var(--copper); }
+  .cors{ margin-top:14px; border:1px solid var(--border); border-radius:9px; padding:8px 10px; background:var(--panel-2); }
+  .cors summary{ cursor:pointer; font-size:12px; color:var(--copper); font-weight:600; }
+  .cors p, .cors li{ font-size:12px; color:var(--muted); line-height:1.5; }
+  .cors ul{ margin:8px 0 0; padding-left:18px; }
+  .cors code{ font-family:var(--mono); color:#cfe6e2; background:rgba(255,255,255,.05); padding:1px 4px; border-radius:4px; }
 
   /* ---------- Responsive: stack panels on narrow screens ---------- */
   @media (max-width: 820px){
@@ -277,6 +282,22 @@ Type a command below or let the assistant propose one.
 
     <label>Model</label>
     <input id="setModel" placeholder="e.g. openai/gpt-4o-mini  ·  meta/llama-3.1-70b-instruct  ·  llama3.1" spellcheck="false" />
+
+    <!-- Known fixes for the one thing beginners actually trip on: CORS. -->
+    <details class="cors">
+      <summary>Endpoint blocked by CORS? Known fixes</summary>
+      <p>Browsers only allow cross-origin API calls when the server sends CORS headers.
+      OpenRouter and NVIDIA already do, so their presets work as-is. If a request fails:</p>
+      <ul>
+        <li><strong>Ollama (local):</strong> start it so it allows this page's origin —
+          <code>OLLAMA_ORIGINS=* ollama serve</code> (or set <code>OLLAMA_ORIGINS</code>
+          to your exact origin).</li>
+        <li><strong>Any endpoint without CORS headers:</strong> run a throwaway Chrome —
+          <code>chrome --disable-web-security --user-data-dir=/tmp/dai</code> — or put a
+          tiny local proxy in front that adds <code>Access-Control-Allow-Origin</code>,
+          then point the Base URL at the proxy.</li>
+      </ul>
+    </details>
 
     <div class="row">
       <button id="setCancel" class="btn">Close</button>
@@ -539,6 +560,11 @@ async function askAI(userText){
     const url = s.baseUrl.replace(/\/+$/,"") + "/chat/completions";
     const headers = { "Content-Type":"application/json" };
     if(s.apiKey) headers["Authorization"] = "Bearer " + s.apiKey;
+    // OpenRouter recommends these attribution headers for browser apps (optional, harmless elsewhere).
+    if(/openrouter\.ai/.test(s.baseUrl)){
+      headers["HTTP-Referer"] = location.origin;
+      headers["X-Title"] = "DAI-LITE";
+    }
 
     const res = await fetch(url, {
       method:"POST",
