@@ -573,6 +573,10 @@ async function askAI(userText){
         model: s.model || "gpt-4o-mini",
         messages: [{ role:"system", content:SYSTEM_PROMPT }, ...conversation],
         temperature: 0.4,
+        // Cap the reply length. Keeps answers short (good for voice) and, on
+        // metered providers like OpenRouter, avoids a 402 where the model's huge
+        // default token reservation exceeds a small credit balance.
+        max_tokens: 800,
         stream: false
       })
     });
