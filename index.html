@@ -1,5 +1,7 @@
 <!--
-  DAI-LITE — an AI voice companion for the Flipper Zero.
+  DAI-LITE — an AI voice companion for the Flipper Zero (and other BLE serial
+  devices, like your own ESP32-S3 boards).
+
   Single-file, no-backend, no-build web app. Runs entirely in the browser
   (Chrome/Edge on Android or desktop). Inspired by the discontinued AIPI Lite.
 
@@ -26,7 +28,8 @@
 
   Everything (HTML/CSS/JS) is inline in this one file on purpose, so it is easy
   to read, fork, host anywhere, or just open from disk. Beginners welcome — the
-  comments explain what each part does.
+  comments explain what each part does. The pure logic is also exposed on
+  window.DAILITE and covered by the tests in /tests.
 -->
 <!doctype html>
 <html lang="en">
@@ -60,7 +63,7 @@
     overflow-x:hidden;              /* never allow horizontal page scroll */
     -webkit-text-size-adjust:100%;
   }
-  button{ font-family:inherit; }
+  button, select, input{ font-family:inherit; }
 
   /* ---------- App shell ---------- */
   .app{ display:flex; flex-direction:column; min-height:100%; }
@@ -138,7 +141,7 @@
   }
   #term .sys{ color:var(--muted); }
   #term .cmd{ color:var(--copper); }        /* echoed outgoing commands */
-  #term .rx{ color:#bfe9df; }               /* data received from Flipper */
+  #term .rx{ color:#bfe9df; }               /* data received from the device */
   #term .err{ color:var(--danger); }
 
   .cmdbar{ display:flex; gap:8px; padding:8px; border-top:1px solid var(--border); }
@@ -183,17 +186,20 @@
   /* ---------- Modal (settings + safety notice) ---------- */
   .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.68); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
   .overlay.show{ display:flex; }
-  .modal{ width:100%; max-width:440px; max-height:90vh; overflow-y:auto; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; }
+  .modal{ width:100%; max-width:460px; max-height:90vh; overflow-y:auto; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; }
   .modal h2{ margin:0 0 4px; font-size:17px; }
   .modal h2 .accent{ color:var(--copper); }
   .modal p{ color:var(--muted); font-size:13px; line-height:1.5; }
   .modal label{ display:block; font-size:12px; color:var(--muted); margin:12px 0 5px; letter-spacing:.3px; }
-  .modal input{ width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:13px; font-family:var(--mono); }
-  .modal input:focus{ outline:none; border-color:var(--teal); }
+  .modal input, .modal select{ width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:13px; font-family:var(--mono); }
+  .modal input:focus, .modal select:focus{ outline:none; border-color:var(--teal); }
   .presets{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
   .presets .btn{ font-size:12px; padding:7px 10px; }
   .modal .row{ display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+  .modal hr{ border:none; border-top:1px solid var(--border); margin:16px 0; }
+  .modal .section{ font-size:11px; letter-spacing:.7px; text-transform:uppercase; color:var(--teal); font-weight:700; }
   .hint{ font-size:11px; color:var(--muted); margin-top:6px; }
+  .two{ display:flex; gap:8px; } .two > *{ flex:1; min-width:0; }
   .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
   .warn-box strong{ color:var(--copper); }
   .cors{ margin-top:14px; border:1px solid var(--border); border-radius:9px; padding:8px 10px; background:var(--panel-2); }
@@ -222,22 +228,22 @@
   <header>
     <div class="brand">
       <div class="logo">DL</div>
-      <h1>DAI&#8209;LITE <small>· Flipper AI</small></h1>
+      <h1>DAI&#8209;LITE <small>· AI for BLE gear</small></h1>
     </div>
     <div class="spacer"></div>
     <div id="status" class="status"><span class="dot"></span><span class="txt">Disconnected</span></div>
     <button id="muteBtn" class="btn icon" title="Mute / unmute the assistant voice">🔊</button>
-    <button id="settingsBtn" class="btn icon" title="AI provider settings">⚙️</button>
+    <button id="settingsBtn" class="btn icon" title="Provider & device settings">⚙️</button>
     <button id="connectBtn" class="btn primary">Connect</button>
   </header>
 
   <!-- ================= MAIN ================= -->
   <main class="main">
 
-    <!-- LEFT: live Flipper CLI terminal -->
+    <!-- LEFT: live device CLI terminal -->
     <section class="panel">
-      <div class="head"><span class="tag">Flipper CLI</span><span class="spacer" style="flex:1"></span><span id="devname" style="text-transform:none;letter-spacing:0"></span></div>
-      <pre id="term"><span class="sys">DAI-LITE terminal ready. Connect a Flipper Zero to begin.
+      <div class="head"><span class="tag" id="devTag">Flipper CLI</span><span class="spacer" style="flex:1"></span><span id="devname" style="text-transform:none;letter-spacing:0"></span></div>
+      <pre id="term"><span class="sys">DAI-LITE terminal ready. Connect a device to begin.
 Type a command below or let the assistant propose one.
 </span></pre>
       <div class="cmdbar">
@@ -263,8 +269,11 @@ Type a command below or let the assistant propose one.
 <!-- ================= SETTINGS MODAL ================= -->
 <div id="settingsOverlay" class="overlay">
   <div class="modal">
-    <h2>AI Provider <span class="accent">Settings</span></h2>
-    <p>DAI-LITE talks to any OpenAI-compatible <code>/chat/completions</code> endpoint. Keys are stored only in this browser (localStorage) — never sent anywhere but the provider you choose.</p>
+    <h2><span class="accent">Settings</span></h2>
+
+    <!-- ---- AI provider ---- -->
+    <div class="section">AI provider</div>
+    <p>Any OpenAI-compatible <code>/chat/completions</code> endpoint. Keys are stored only in this browser (localStorage) — never sent anywhere but the provider you choose.</p>
 
     <label>Presets</label>
     <div class="presets">
@@ -281,9 +290,8 @@ Type a command below or let the assistant propose one.
     <div class="hint">Local Ollama ignores the key — leave it blank.</div>
 
     <label>Model</label>
-    <input id="setModel" placeholder="e.g. openai/gpt-4o-mini  ·  meta/llama-3.1-70b-instruct  ·  llama3.1" spellcheck="false" />
+    <input id="setModel" placeholder="e.g. openai/gpt-4o-mini · meta/llama-3.1-70b-instruct · llama3.1" spellcheck="false" />
 
-    <!-- Known fixes for the one thing beginners actually trip on: CORS. -->
     <details class="cors">
       <summary>Endpoint blocked by CORS? Known fixes</summary>
       <p>Browsers only allow cross-origin API calls when the server sends CORS headers.
@@ -294,10 +302,49 @@ Type a command below or let the assistant propose one.
           to your exact origin).</li>
         <li><strong>Any endpoint without CORS headers:</strong> run a throwaway Chrome —
           <code>chrome --disable-web-security --user-data-dir=/tmp/dai</code> — or put a
-          tiny local proxy in front that adds <code>Access-Control-Allow-Origin</code>,
-          then point the Base URL at the proxy.</li>
+          tiny local proxy in front that adds <code>Access-Control-Allow-Origin</code>.</li>
       </ul>
     </details>
+
+    <hr />
+
+    <!-- ---- Device / transport ---- -->
+    <div class="section">Device (BLE serial)</div>
+    <p>DAI-LITE speaks a simple text CLI over a Bluetooth serial link. Flipper Zero is
+    built in; ESP32-S3 boards using the Nordic UART Service work too, and Custom lets
+    you point at your own hardware's UUIDs.</p>
+
+    <label>Device type</label>
+    <select id="setDevice">
+      <option value="flipper">Flipper Zero</option>
+      <option value="esp32">ESP32-S3 (Nordic UART Service)</option>
+      <option value="custom">Custom…</option>
+    </select>
+    <div id="deviceHint" class="hint"></div>
+
+    <!-- Editable fields, shown for the Custom profile -->
+    <div id="customDevice" style="display:none">
+      <label>Name prefix (BLE advertised name)</label>
+      <input id="setPrefix" placeholder="MyBoard  (blank = show all devices)" spellcheck="false" />
+      <label>Serial service UUID</label>
+      <input id="setService" placeholder="6e400001-b5a3-f393-e0a9-e50e24dcca9e" spellcheck="false" />
+      <div class="two">
+        <div>
+          <label>TX — write to device</label>
+          <input id="setTx" placeholder="…0002…" spellcheck="false" />
+        </div>
+        <div>
+          <label>RX — notify from device</label>
+          <input id="setRx" placeholder="…0003…" spellcheck="false" />
+        </div>
+      </div>
+      <label>Line ending sent after each command</label>
+      <select id="setLineEnd">
+        <option value="cr">CR &#92;r (Flipper)</option>
+        <option value="lf">LF &#92;n (most ESP32 firmware)</option>
+        <option value="crlf">CRLF &#92;r&#92;n</option>
+      </select>
+    </div>
 
     <div class="row">
       <button id="setCancel" class="btn">Close</button>
@@ -312,7 +359,7 @@ Type a command below or let the assistant propose one.
     <h2>⚠️ Before you <span class="accent">start</span></h2>
     <div class="warn-box">
       <strong>This app controls real RF and hardware.</strong>
-      DAI-LITE can command a physical Flipper Zero to transmit radio signals, emulate
+      DAI-LITE can command a physical device to transmit radio signals, emulate
       access credentials, run scripts, and modify files. Transmitting on certain
       frequencies, cloning cards, or accessing systems you don't own may be illegal.
     </div>
@@ -330,145 +377,138 @@ Type a command below or let the assistant propose one.
 "use strict";
 /* =========================================================================
    DAI-LITE application logic
-   Sections:  (1) Flipper Bluetooth  (2) Terminal  (3) AI chat  (4) Voice
-              (5) Settings  (6) Safety notice  (7) Feature detection / wiring
+
+   The file is split into two layers so it is easy to read AND easy to test:
+     • PURE LOGIC  — small functions with no DOM/browser dependencies. These are
+                     exposed on window.DAILITE and covered by /tests.
+     • DOM LAYER   — wiring, Bluetooth, voice, and rendering that only runs in a
+                     real browser.
    ========================================================================= */
 
-/* ---- Exact Flipper Zero BLE Serial UUIDs (from the task spec) ---- */
+/* ---- Exact Flipper Zero BLE Serial UUIDs (required by the spec) ---- */
 const SERIAL_SERVICE = "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000";
 const TX_CHAR        = "19ed82ae-ed21-4c9d-4145-228e62fe0000"; // phone -> Flipper (write)
 const RX_CHAR        = "19ed82ae-ed21-4c9d-4145-228e61fe0000"; // Flipper -> phone (notify)
 
-/* Small helpers */
-const $ = (id) => document.getElementById(id);
+/* ---- Device profiles ----------------------------------------------------
+   A "profile" describes how to reach a device's text CLI over BLE serial:
+   which advertised name to look for, the GATT service, the write (TX) and
+   notify (RX) characteristics, and the line ending its firmware expects.
+   Flipper Zero is built in. ESP32-S3 boards commonly expose the Nordic UART
+   Service (NUS) — the de-facto BLE "serial port" — so that is built in too.
+   "custom" is filled from Settings for hardware you build yourself.        */
+const DEVICE_PROFILES = {
+  flipper: {
+    key:"flipper", label:"Flipper Zero", namePrefix:"Flipper",
+    service:SERIAL_SERVICE, txChar:TX_CHAR, rxChar:RX_CHAR,
+    lineEnding:"\r", chunkSize:20
+  },
+  esp32: {
+    key:"esp32", label:"ESP32-S3 (Nordic UART)", namePrefix:"ESP32",
+    service:"6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+    txChar: "6e400002-b5a3-f393-e0a9-e50e24dcca9e", // NUS RX char = we write here
+    rxChar: "6e400003-b5a3-f393-e0a9-e50e24dcca9e", // NUS TX char = notifications
+    lineEnding:"\n", chunkSize:20
+  }
+};
+
+/* ---- OpenAI-compatible provider presets (Base URL + a sensible model) ---- */
+const PRESETS = {
+  openrouter: { baseUrl:"https://openrouter.ai/api/v1",        model:"openai/gpt-4o-mini" },
+  nvidia:     { baseUrl:"https://integrate.api.nvidia.com/v1", model:"meta/llama-3.1-70b-instruct" },
+  // Ollama runs on your LAN and ignores the API key. Replace LAN-IP with your host.
+  ollama:     { baseUrl:"http://LAN-IP:11434/v1",              model:"llama3.1" }
+};
+
+/* Small helpers used by both layers */
 const enc = new TextEncoder();
-const rxDecoder = new TextDecoder();       // stream-decodes incoming UTF-8
-
-/* Shared connection state */
-let device = null, gattServer = null, txChar = null, rxChar = null;
 
 /* =========================================================================
-   (1) FLIPPER BLUETOOTH
+   PURE LOGIC  (no DOM — unit tested in /tests/dai-lite.test.mjs)
    ========================================================================= */
-async function connectFlipper(){
-  if(!navigator.bluetooth){
-    termLine("Web Bluetooth is not available in this browser.", "err");
-    return;
+
+/* Map a stored line-ending code to the actual characters. */
+function lineEndingFromCode(code){
+  if(code === "lf")   return "\n";
+  if(code === "crlf") return "\r\n";
+  return "\r"; // "cr" (default; Flipper uses CR)
+}
+
+/* Read raw localStorage text (or an object) into a fully-shaped settings object. */
+function normalizeSettings(raw){
+  let s = {};
+  if(typeof raw === "string"){ try{ s = JSON.parse(raw) || {}; }catch(_){ s = {}; } }
+  else if(raw && typeof raw === "object"){ s = raw; }
+  return {
+    baseUrl:       s.baseUrl || "",
+    apiKey:        s.apiKey || "",
+    model:         s.model || "",
+    deviceProfile: s.deviceProfile || "flipper",
+    custom:        s.custom || {}
+  };
+}
+
+/* Resolve the active device profile from settings (built-in or custom). */
+function getActiveProfile(settings){
+  const key = (settings && settings.deviceProfile) || "flipper";
+  if(key === "custom"){
+    const c = (settings && settings.custom) || {};
+    return {
+      key:"custom",
+      label: c.label || "Custom device",
+      namePrefix: c.namePrefix || "",
+      service: String(c.service || "").trim().toLowerCase(),
+      txChar:  String(c.txChar  || "").trim().toLowerCase(),
+      rxChar:  String(c.rxChar  || "").trim().toLowerCase(),
+      lineEnding: lineEndingFromCode(c.lineEnding),
+      chunkSize: 20
+    };
   }
-  try{
-    termLine("Requesting a Flipper Zero…", "sys");
-    // Filter by name prefix; must list the service as optional to use it later.
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "Flipper" }],
-      optionalServices: [SERIAL_SERVICE]
-    });
-    device.addEventListener("gattserverdisconnected", onDisconnected);
-
-    termLine("Connecting to " + device.name + "…", "sys");
-    gattServer = await device.gatt.connect();
-    const service = await gattServer.getPrimaryService(SERIAL_SERVICE);
-    txChar = await service.getCharacteristic(TX_CHAR);
-    rxChar = await service.getCharacteristic(RX_CHAR);
-
-    // Listen for data the Flipper sends back and print it to the terminal.
-    await rxChar.startNotifications();
-    rxChar.addEventListener("characteristicvaluechanged", onFlipperData);
-
-    setConnected(true, device.name);
-    termLine("Connected. CLI is live — try `device_info`.", "sys");
-  }catch(err){
-    // requestDevice throws if the user cancels the chooser — that's fine.
-    if(err && err.name === "NotFoundError"){
-      termLine("Connection cancelled.", "sys");
-    }else{
-      termLine("Bluetooth error: " + (err && err.message ? err.message : err), "err");
-    }
-    setConnected(false);
-  }
+  return DEVICE_PROFILES[key] || DEVICE_PROFILES.flipper;
 }
 
-function onDisconnected(){
-  setConnected(false);
-  txChar = null; rxChar = null; gattServer = null;
-  termLine("Flipper disconnected.", "err");
+/* A profile is usable only if it has all three UUIDs. */
+function profileIsComplete(p){
+  return !!(p && p.service && p.txChar && p.rxChar);
 }
 
-/* Send a CLI command: UTF-8 text + carriage return, chunked into 20-byte writes. */
-async function sendToFlipper(command){
-  if(!txChar){
-    termLine("Not connected — connect a Flipper first.", "err");
-    return false;
-  }
-  const bytes = enc.encode(command + "\r");
-  try{
-    for(let i = 0; i < bytes.length; i += 20){
-      const chunk = bytes.slice(i, i + 20);      // BLE payloads are small, so chunk it
-      // Prefer write-without-response when supported; fall back to write-with-response.
-      if(txChar.writeValueWithoutResponse) await txChar.writeValueWithoutResponse(chunk);
-      else await txChar.writeValue(chunk);
-    }
-    termLine("> " + command, "cmd");             // echo what we sent
-    return true;
-  }catch(err){
-    termLine("Write failed: " + (err && err.message ? err.message : err), "err");
-    return false;
-  }
+/* Turn a command string into UTF-8 bytes with the device's line ending. */
+function frameCommand(command, lineEnding){
+  return enc.encode(String(command) + (lineEnding || "\r"));
 }
 
-/* Notification handler: decode incoming bytes as UTF-8 and stream into terminal. */
-function onFlipperData(event){
-  const text = rxDecoder.decode(event.target.value, { stream: true });
-  if(text) termAppend(text, "rx");
+/* Split a byte array into fixed-size chunks (BLE writes are small). */
+function chunkBytes(bytes, size){
+  size = size || 20;
+  const out = [];
+  for(let i = 0; i < bytes.length; i += size) out.push(bytes.slice(i, i + size));
+  return out;
 }
 
-/* =========================================================================
-   (2) TERMINAL PANEL
-   ========================================================================= */
-const term = $("term");
-
-// Append raw text (used for streaming RX data) inside a colored span.
-function termAppend(text, cls){
-  const span = document.createElement("span");
-  if(cls) span.className = cls;
-  span.textContent = text;
-  term.appendChild(span);
-  trimTerminal();
-  term.scrollTop = term.scrollHeight;
-}
-// Append a whole line (adds its own newline). Used for local status messages.
-function termLine(text, cls){ termAppend(text + "\n", cls); }
-
-// Keep the terminal from growing without bound.
-function trimTerminal(){
-  while(term.childNodes.length > 600) term.removeChild(term.firstChild);
-}
-
-/* =========================================================================
-   (3) AI CHAT
-   ========================================================================= */
-const chat = $("chat");
-let conversation = [];   // running history: [{role:'user'|'assistant', content}]
-
-// System prompt: teaches the model how to drive the Flipper and how to
-// propose commands so the app can render a confirm-before-run button.
-const SYSTEM_PROMPT =
-`You are DAI-LITE, a concise AI assistant that helps the user operate a Flipper Zero
-over its text-based command-line interface (CLI) through a Bluetooth link.
+/* Build the system prompt, tailored to the connected device. */
+function buildSystemPrompt(profile){
+  const label = (profile && profile.label) || "a device";
+  let p =
+`You are DAI-LITE, a concise AI assistant that helps the user operate ${label}
+over a text command-line interface (CLI) through a Bluetooth serial link.
 
 How to respond:
 - Reply in plain, short language suitable for reading aloud.
-- Whenever a Flipper CLI command should be run, put it ON ITS OWN LINE beginning
+- Whenever a command should run on the device, put it ON ITS OWN LINE beginning
   EXACTLY with "RUN: " — for example:
-      RUN: storage list /ext
+      RUN: help
 - The app shows the user a "Run" button for each such line. The user must press it.
   NEVER assume a command already ran, and NEVER invent command output. After the
   user runs something, its real output appears and they can tell you what happened.
-- Prefer safe, read-only commands first (device_info, power info, storage list).
-- Before anything that transmits RF, emulates credentials, deletes files, or is
+- Prefer safe, read-only/status commands first.
+- Before anything that transmits RF, emulates credentials, deletes data, or is
   otherwise high-impact, warn briefly and remind the user they are responsible for
-  legal, authorized use only.
+  legal, authorized use only.`;
 
-Handy Flipper CLI commands:
+  if(profile && profile.key === "flipper"){
+    p += `
+
+Handy Flipper Zero CLI commands:
   help                     list available commands
   device_info              hardware / firmware info
   power info               battery and charge state
@@ -478,9 +518,196 @@ Handy Flipper CLI commands:
   vibro 1 / vibro 0        buzz the motor on / off
   led r 255                set the LED (r/g/b 0-255)
   subghz / ir / nfc ...    RF, infrared and NFC subsystems (higher risk)`;
+  }else{
+    p += `
 
-// Render a chat bubble. `content` for AI is parsed for RUN: lines.
+You are talking to ${label} over BLE serial. If you don't yet know its command
+set, start with "help" (or ask the user) and adapt to what it prints back.`;
+  }
+  return p;
+}
+
+/* Build the JSON request body for the chat/completions call. */
+function buildRequestBody(systemPrompt, conversation, settings){
+  return {
+    model: (settings && settings.model) || "gpt-4o-mini",
+    messages: [{ role:"system", content:systemPrompt }, ...(conversation || [])],
+    temperature: 0.4,
+    // Cap reply length: keeps answers short (good for voice) and, on metered
+    // providers like OpenRouter, avoids a 402 where the model's huge default
+    // token reservation exceeds a small credit balance.
+    max_tokens: 800,
+    stream: false
+  };
+}
+
+/* Build request headers, including OpenRouter's recommended attribution ones. */
+function buildHeaders(settings, origin){
+  const h = { "Content-Type":"application/json" };
+  if(settings && settings.apiKey) h["Authorization"] = "Bearer " + settings.apiKey;
+  if(settings && /openrouter\.ai/.test(settings.baseUrl || "")){
+    h["HTTP-Referer"] = origin || "https://dai-lite.local";
+    h["X-Title"] = "DAI-LITE";
+  }
+  return h;
+}
+
+/* Join a Base URL to the chat/completions path without doubling slashes. */
+function resolveChatUrl(baseUrl){
+  return String(baseUrl || "").replace(/\/+$/,"") + "/chat/completions";
+}
+
+/* Safely pull the assistant text out of an OpenAI-shaped response. */
+function extractReply(data){
+  return (data && data.choices && data.choices[0] && data.choices[0].message &&
+          data.choices[0].message.content) || "";
+}
+
+/* Parse an assistant reply into ordered segments of prose and RUN: commands.
+   This is the ONLY place a command is recognized, so it is heavily tested. */
+function parseAssistant(content){
+  const segments = [];
+  let prose = [];
+  const flush = () => {
+    const t = prose.join("\n").trim();
+    if(t) segments.push({ type:"text", text:t });
+    prose = [];
+  };
+  for(const line of String(content == null ? "" : content).split("\n")){
+    const m = line.match(/^\s*RUN:\s*(.+?)\s*$/);   // "RUN: " is case-sensitive & exact
+    if(m){ flush(); segments.push({ type:"run", command:m[1] }); }
+    else prose.push(line);
+  }
+  flush();
+  return segments;
+}
+
+/* Remove RUN: lines so text-to-speech doesn't read raw commands out loud. */
+function stripRunLines(text){
+  return String(text == null ? "" : text)
+    .split("\n").filter(l => !/^\s*RUN:/.test(l))
+    .join(" ").replace(/\s+/g," ").trim();
+}
+
+/* Expose the pure logic for tests (and for tinkering from the browser console).
+   Harmless in the browser; essential for /tests to exercise the shipped code. */
+if(typeof globalThis !== "undefined"){
+  globalThis.DAILITE = {
+    DEVICE_PROFILES, PRESETS, SERIAL_SERVICE, TX_CHAR, RX_CHAR,
+    lineEndingFromCode, normalizeSettings, getActiveProfile, profileIsComplete,
+    frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
+    resolveChatUrl, extractReply, parseAssistant, stripRunLines
+  };
+}
+
+/* =========================================================================
+   DOM LAYER  (browser only — skipped when loaded headlessly by the tests)
+   ========================================================================= */
+const $ = (id) => (typeof document !== "undefined" ? document.getElementById(id) : null);
+const rxDecoder = (typeof TextDecoder !== "undefined") ? new TextDecoder() : null;
+
+/* Shared runtime state */
+let device = null, gattServer = null, txChar = null, rxChar = null;
+let activeProfile = DEVICE_PROFILES.flipper;
+let muted = false;
+const synth = (typeof window !== "undefined" && window.speechSynthesis) ? window.speechSynthesis : null;
+const SR = (typeof window !== "undefined") ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+let recognition = null, listening = false, sendOnEnd = false;
+let conversation = [];   // running history: [{role:'user'|'assistant', content}]
+
+/* ---- Settings (localStorage) ---- */
+const SETTINGS_KEY = "dailite_settings";
+function getSettings(){
+  try{ return normalizeSettings(localStorage.getItem(SETTINGS_KEY)); }
+  catch(_){ return normalizeSettings(null); }
+}
+
+/* ---- Terminal panel ---- */
+function termAppend(text, cls){
+  const term = $("term"); if(!term) return;
+  const span = document.createElement("span");
+  if(cls) span.className = cls;
+  span.textContent = text;
+  term.appendChild(span);
+  while(term.childNodes.length > 600) term.removeChild(term.firstChild); // bound growth
+  term.scrollTop = term.scrollHeight;
+}
+function termLine(text, cls){ termAppend(text + "\n", cls); }
+
+/* ---- Bluetooth ---- */
+async function connectDevice(){
+  if(typeof navigator === "undefined" || !navigator.bluetooth){
+    termLine("Web Bluetooth is not available in this browser.", "err");
+    return;
+  }
+  const profile = getActiveProfile(getSettings());
+  if(!profileIsComplete(profile)){
+    termLine("This device profile is missing its service/characteristic UUIDs. Open ⚙️ Settings and fill them in.", "err");
+    return;
+  }
+  activeProfile = profile;
+  try{
+    termLine("Requesting a " + profile.label + "…", "sys");
+    // Filter by advertised name when we have a prefix; otherwise show everything.
+    const options = profile.namePrefix
+      ? { filters: [{ namePrefix: profile.namePrefix }], optionalServices: [profile.service] }
+      : { acceptAllDevices: true, optionalServices: [profile.service] };
+    device = await navigator.bluetooth.requestDevice(options);
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+
+    termLine("Connecting to " + device.name + "…", "sys");
+    gattServer = await device.gatt.connect();
+    const service = await gattServer.getPrimaryService(profile.service);
+    txChar = await service.getCharacteristic(profile.txChar);
+    rxChar = await service.getCharacteristic(profile.rxChar);
+
+    await rxChar.startNotifications();
+    rxChar.addEventListener("characteristicvaluechanged", onDeviceData);
+
+    setConnected(true, device.name);
+    termLine("Connected to " + profile.label + ". Serial link is live — try `help`.", "sys");
+  }catch(err){
+    if(err && err.name === "NotFoundError") termLine("Connection cancelled.", "sys");
+    else termLine("Bluetooth error: " + (err && err.message ? err.message : err), "err");
+    setConnected(false);
+  }
+}
+
+function onDisconnected(){
+  setConnected(false);
+  txChar = null; rxChar = null; gattServer = null;
+  termLine("Device disconnected.", "err");
+}
+
+/* Send a CLI command using the active profile's line ending + chunk size. */
+async function sendCommand(command){
+  if(!txChar){ termLine("Not connected — connect a device first.", "err"); return false; }
+  const p = activeProfile || DEVICE_PROFILES.flipper;
+  const chunks = chunkBytes(frameCommand(command, p.lineEnding), p.chunkSize);
+  try{
+    for(const chunk of chunks){
+      if(txChar.writeValueWithoutResponse) await txChar.writeValueWithoutResponse(chunk);
+      else await txChar.writeValue(chunk);
+    }
+    termLine("> " + command, "cmd");
+    return true;
+  }catch(err){
+    termLine("Write failed: " + (err && err.message ? err.message : err), "err");
+    return false;
+  }
+}
+
+/* Notification handler: decode incoming bytes as UTF-8, stream into terminal. */
+function onDeviceData(event){
+  const text = rxDecoder ? rxDecoder.decode(event.target.value, { stream:true }) : "";
+  if(text) termAppend(text, "rx");
+}
+
+/* ---- Chat rendering ---- */
+function roleTag(t){ const s = document.createElement("span"); s.className="role"; s.textContent=t; return s; }
+
 function addMessage(role, content){
+  const chat = $("chat"); if(!chat) return null;
   const div = document.createElement("div");
   if(role === "user"){
     div.className = "msg user";
@@ -489,7 +716,16 @@ function addMessage(role, content){
   }else if(role === "assistant"){
     div.className = "msg ai";
     div.appendChild(roleTag("DAI-LITE"));
-    renderAssistant(div, content);
+    // Use the tested parser, then render each segment.
+    for(const seg of parseAssistant(content)){
+      if(seg.type === "text"){
+        const p = document.createElement("div");
+        p.textContent = seg.text;
+        div.appendChild(p);
+      }else{
+        div.appendChild(makeRunRow(seg.command));
+      }
+    }
   }else if(role === "error"){
     div.className = "msg err";
     div.textContent = content;
@@ -501,33 +737,8 @@ function addMessage(role, content){
   chat.scrollTop = chat.scrollHeight;
   return div;
 }
-function roleTag(t){ const s = document.createElement("span"); s.className="role"; s.textContent=t; return s; }
 
-// Split assistant text into prose + "RUN:" command lines with a Run button each.
-function renderAssistant(container, content){
-  const lines = content.split("\n");
-  let prose = [];
-  const flushProse = () => {
-    if(prose.join("\n").trim().length){
-      const p = document.createElement("div");
-      p.textContent = prose.join("\n").trim();
-      container.appendChild(p);
-    }
-    prose = [];
-  };
-  for(const line of lines){
-    const m = line.match(/^\s*RUN:\s*(.+?)\s*$/);
-    if(m){
-      flushProse();
-      container.appendChild(makeRunRow(m[1]));
-    }else{
-      prose.push(line);
-    }
-  }
-  flushProse();
-}
-
-// A single "proposed command" row — the ONLY way the AI's command reaches hardware.
+/* A "proposed command" row — the ONLY path from AI text to real hardware. */
 function makeRunRow(command){
   const row = document.createElement("div");
   row.className = "run";
@@ -537,7 +748,7 @@ function makeRunRow(command){
   go.className = "go";
   go.textContent = "Run";
   go.addEventListener("click", async () => {
-    const ok = await sendToFlipper(command);   // user explicitly confirmed
+    const ok = await sendCommand(command);      // user explicitly confirmed
     if(ok){ row.classList.add("done"); go.textContent = "Sent ✓"; }
   });
   row.appendChild(code);
@@ -545,194 +756,150 @@ function makeRunRow(command){
   return row;
 }
 
-// Send the whole conversation to the configured OpenAI-compatible endpoint.
+/* ---- AI request ---- */
 async function askAI(userText){
   const s = getSettings();
-  if(!s.baseUrl){
-    addMessage("error", "Set an AI Base URL in ⚙️ Settings first.");
-    return;
-  }
+  if(!s.baseUrl){ addMessage("error", "Set an AI Base URL in ⚙️ Settings first."); return; }
+
   conversation.push({ role:"user", content:userText });
   addMessage("user", userText);
-
   const thinking = addMessage("note", "…thinking");
-  try{
-    const url = s.baseUrl.replace(/\/+$/,"") + "/chat/completions";
-    const headers = { "Content-Type":"application/json" };
-    if(s.apiKey) headers["Authorization"] = "Bearer " + s.apiKey;
-    // OpenRouter recommends these attribution headers for browser apps (optional, harmless elsewhere).
-    if(/openrouter\.ai/.test(s.baseUrl)){
-      headers["HTTP-Referer"] = location.origin;
-      headers["X-Title"] = "DAI-LITE";
-    }
 
-    const res = await fetch(url, {
-      method:"POST",
-      headers,
-      body: JSON.stringify({
-        model: s.model || "gpt-4o-mini",
-        messages: [{ role:"system", content:SYSTEM_PROMPT }, ...conversation],
-        temperature: 0.4,
-        // Cap the reply length. Keeps answers short (good for voice) and, on
-        // metered providers like OpenRouter, avoids a 402 where the model's huge
-        // default token reservation exceeds a small credit balance.
-        max_tokens: 800,
-        stream: false
-      })
+  try{
+    const systemPrompt = buildSystemPrompt(getActiveProfile(s));
+    const origin = (typeof location !== "undefined") ? location.origin : "";
+    const res = await fetch(resolveChatUrl(s.baseUrl), {
+      method: "POST",
+      headers: buildHeaders(s, origin),
+      body: JSON.stringify(buildRequestBody(systemPrompt, conversation, s))
     });
-    thinking.remove();
+    if(thinking) thinking.remove();
 
     if(!res.ok){
       const detail = await res.text().catch(()=> "");
       addMessage("error", "AI error " + res.status + ": " + detail.slice(0,300));
       return;
     }
-    const data = await res.json();
-    const reply = data && data.choices && data.choices[0] &&
-                  data.choices[0].message && data.choices[0].message.content;
+    const reply = extractReply(await res.json());
     if(!reply){ addMessage("error", "The AI returned an empty response."); return; }
 
     conversation.push({ role:"assistant", content:reply });
     addMessage("assistant", reply);
     speak(stripRunLines(reply));                 // read the prose aloud (not raw commands)
   }catch(err){
-    thinking.remove();
+    if(thinking) thinking.remove();
     addMessage("error", "Request failed: " + (err && err.message ? err.message : err) +
       "  (Check the Base URL, your key, and CORS support for this provider.)");
   }
 }
 
-// Remove RUN: lines so text-to-speech doesn't read raw commands out loud.
-function stripRunLines(text){
-  return text.split("\n").filter(l => !/^\s*RUN:/.test(l)).join(" ").replace(/\s+/g," ").trim();
-}
-
-/* =========================================================================
-   (4) VOICE — SpeechRecognition (input) + SpeechSynthesis (output)
-   ========================================================================= */
-let muted = false;
-const synth = window.speechSynthesis || null;
-
+/* ---- Voice ---- */
 function speak(text){
   if(muted || !synth || !text) return;
-  synth.cancel();                                // don't overlap replies
+  synth.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1.02;
   synth.speak(u);
 }
-
-// Push-to-talk speech recognition (hold the mic button).
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null, listening = false, sendOnEnd = false;
-
 function setupRecognition(){
   if(!SR) return;
   recognition = new SR();
   recognition.lang = "en-US";
   recognition.interimResults = true;
   recognition.continuous = false;
-
   recognition.onresult = (e) => {
     let transcript = "";
     for(let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
-    $("chatInput").value = transcript;           // live-fill the text box
+    $("chatInput").value = transcript;
   };
   recognition.onend = () => {
     listening = false;
     $("mic").classList.remove("listening");
-    // When the user releases the button, send what was heard.
-    if(sendOnEnd && $("chatInput").value.trim()){ sendChat(); }
+    if(sendOnEnd && $("chatInput").value.trim()) sendChat();
     sendOnEnd = false;
   };
-  recognition.onerror = () => { /* ignore; onend still fires */ };
+  recognition.onerror = () => { /* onend still fires */ };
 }
-
 function startListening(){
   if(!recognition || listening) return;
-  try{
-    sendOnEnd = true; listening = true;
-    $("chatInput").value = "";
-    $("mic").classList.add("listening");
-    recognition.start();
-  }catch(_){ listening = false; $("mic").classList.remove("listening"); }
+  try{ sendOnEnd = true; listening = true; $("chatInput").value = ""; $("mic").classList.add("listening"); recognition.start(); }
+  catch(_){ listening = false; $("mic").classList.remove("listening"); }
 }
-function stopListening(){
-  if(!recognition || !listening) return;
-  try{ recognition.stop(); }catch(_){}
+function stopListening(){ if(recognition && listening){ try{ recognition.stop(); }catch(_){} } }
+
+/* ---- Settings UI ---- */
+function updateDeviceLabel(){
+  const tag = $("devTag"); if(!tag) return;
+  const p = getActiveProfile(getSettings());
+  tag.textContent = p.label + " CLI";
 }
-
-/* =========================================================================
-   (5) SETTINGS (localStorage)
-   ========================================================================= */
-const SETTINGS_KEY = "dailite_settings";
-const PRESETS = {
-  openrouter: { baseUrl:"https://openrouter.ai/api/v1",        model:"openai/gpt-4o-mini" },
-  nvidia:     { baseUrl:"https://integrate.api.nvidia.com/v1", model:"meta/llama-3.1-70b-instruct" },
-  // Ollama runs on your LAN and ignores the API key. Replace LAN-IP with your host.
-  ollama:     { baseUrl:"http://LAN-IP:11434/v1",              model:"llama3.1" }
-};
-
-function getSettings(){
-  try{ return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }
-  catch(_){ return {}; }
+function describeProfile(key){
+  if(key === "flipper") return "Service " + SERIAL_SERVICE;
+  if(key === "esp32")   return "Nordic UART Service " + DEVICE_PROFILES.esp32.service;
+  return "Enter your board's BLE serial UUIDs below.";
+}
+function toggleCustomFields(){
+  const key = $("setDevice").value;
+  $("customDevice").style.display = (key === "custom") ? "block" : "none";
+  $("deviceHint").textContent = describeProfile(key);
 }
 function openSettings(){
   const s = getSettings();
-  $("setBaseUrl").value = s.baseUrl || "";
-  $("setApiKey").value  = s.apiKey  || "";
-  $("setModel").value   = s.model   || "";
+  $("setBaseUrl").value = s.baseUrl;
+  $("setApiKey").value  = s.apiKey;
+  $("setModel").value   = s.model;
+  $("setDevice").value  = s.deviceProfile;
+  const c = s.custom || {};
+  $("setPrefix").value  = c.namePrefix || "";
+  $("setService").value = c.service || "";
+  $("setTx").value      = c.txChar || "";
+  $("setRx").value      = c.rxChar || "";
+  $("setLineEnd").value = c.lineEnding || "cr";
+  toggleCustomFields();
   $("settingsOverlay").classList.add("show");
 }
 function saveSettings(){
   const s = {
     baseUrl: $("setBaseUrl").value.trim(),
     apiKey:  $("setApiKey").value.trim(),
-    model:   $("setModel").value.trim()
+    model:   $("setModel").value.trim(),
+    deviceProfile: $("setDevice").value,
+    custom: {
+      namePrefix: $("setPrefix").value.trim(),
+      service:    $("setService").value.trim(),
+      txChar:     $("setTx").value.trim(),
+      rxChar:     $("setRx").value.trim(),
+      lineEnding: $("setLineEnd").value
+    }
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   $("settingsOverlay").classList.remove("show");
+  updateDeviceLabel();
 }
 
-/* =========================================================================
-   (6) ONE-TIME SAFETY NOTICE
-   ========================================================================= */
+/* ---- Safety notice ---- */
 const ACK_KEY = "dailite_safety_ack";
-function maybeShowSafety(){
-  if(!localStorage.getItem(ACK_KEY)) $("safetyOverlay").classList.add("show");
-}
+function maybeShowSafety(){ if(!localStorage.getItem(ACK_KEY)) $("safetyOverlay").classList.add("show"); }
 
-/* =========================================================================
-   (7) CONNECTION STATUS + FEATURE DETECTION + EVENT WIRING
-   ========================================================================= */
+/* ---- Connection status ---- */
 function setConnected(connected, name){
-  const el = $("status");
+  const el = $("status"); if(!el) return;
   el.classList.toggle("connected", connected);
   el.querySelector(".txt").textContent = connected ? "Connected" : "Disconnected";
   $("devname").textContent = connected && name ? name : "";
   $("connectBtn").textContent = connected ? "Disconnect" : "Connect";
 }
-
 function toggleConnect(){
-  if(gattServer && gattServer.connected){ device.gatt.disconnect(); }
-  else{ connectFlipper(); }
+  if(gattServer && gattServer.connected) device.gatt.disconnect();
+  else connectDevice();
 }
 
-function sendManualCommand(){
-  const v = $("cmdInput").value.trim();
-  if(!v) return;
-  sendToFlipper(v);
-  $("cmdInput").value = "";
-}
+/* ---- Input helpers ---- */
+function sendManualCommand(){ const v = $("cmdInput").value.trim(); if(!v) return; sendCommand(v); $("cmdInput").value = ""; }
+function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("chatInput").value = ""; askAI(v); }
 
-function sendChat(){
-  const v = $("chatInput").value.trim();
-  if(!v) return;
-  $("chatInput").value = "";
-  askAI(v);
-}
-
+/* ---- Wiring ---- */
 function wire(){
-  // Top bar
   $("connectBtn").addEventListener("click", toggleConnect);
   $("settingsBtn").addEventListener("click", openSettings);
   $("muteBtn").addEventListener("click", () => {
@@ -742,24 +909,21 @@ function wire(){
     $("muteBtn").classList.toggle("on", muted);
   });
 
-  // Terminal / manual command input
   $("cmdSend").addEventListener("click", sendManualCommand);
   $("cmdInput").addEventListener("keydown", e => { if(e.key === "Enter") sendManualCommand(); });
 
-  // Chat
   $("chatSend").addEventListener("click", sendChat);
   $("chatInput").addEventListener("keydown", e => { if(e.key === "Enter") sendChat(); });
 
-  // Push-to-talk mic (pointer events cover mouse + touch). Hold to speak.
   const mic = $("mic");
   mic.addEventListener("pointerdown", e => { e.preventDefault(); startListening(); });
-  mic.addEventListener("pointerup",   stopListening);
-  mic.addEventListener("pointerleave",stopListening);
-  mic.addEventListener("pointercancel",stopListening);
+  mic.addEventListener("pointerup", stopListening);
+  mic.addEventListener("pointerleave", stopListening);
+  mic.addEventListener("pointercancel", stopListening);
 
-  // Settings modal
   $("setSave").addEventListener("click", saveSettings);
   $("setCancel").addEventListener("click", () => $("settingsOverlay").classList.remove("show"));
+  $("setDevice").addEventListener("change", toggleCustomFields);
   document.querySelectorAll("[data-preset]").forEach(btn => {
     btn.addEventListener("click", () => {
       const p = PRESETS[btn.dataset.preset];
@@ -769,25 +933,22 @@ function wire(){
     });
   });
 
-  // Safety notice
   $("safetyOk").addEventListener("click", () => {
     localStorage.setItem(ACK_KEY, "1");
     $("safetyOverlay").classList.remove("show");
   });
-
-  // Dismiss any modal by clicking the dark backdrop (but not the safety one).
   $("settingsOverlay").addEventListener("click", e => {
     if(e.target === $("settingsOverlay")) $("settingsOverlay").classList.remove("show");
   });
 }
 
-// Detect unsupported browsers and degrade gracefully with plain messages.
+/* Detect unsupported browsers and degrade gracefully with plain messages. */
 function featureCheck(){
-  if(!navigator.bluetooth){
+  if(typeof navigator === "undefined" || !navigator.bluetooth){
     $("connectBtn").disabled = true;
     $("connectBtn").textContent = "No Bluetooth";
     $("connectBtn").title = "Web Bluetooth is unavailable. Use Chrome or Edge on Android or desktop.";
-    termLine("Web Bluetooth isn't supported here. Open DAI-LITE in Chrome or Edge (Android/desktop) to connect a Flipper.", "err");
+    termLine("Web Bluetooth isn't supported here. Open DAI-LITE in Chrome or Edge (Android/desktop) to connect a device.", "err");
   }
   if(SR){ setupRecognition(); }
   else{
@@ -803,11 +964,17 @@ function featureCheck(){
   }
 }
 
-// ---- Boot ----
-wire();
-featureCheck();
-maybeShowSafety();
-addMessage("note", "Hold 🎙️ to talk, or type below. Set your AI provider in ⚙️ Settings, then Connect your Flipper.");
+/* ---- Boot (only in a real browser; the tests load this file headlessly) ---- */
+function boot(){
+  wire();
+  featureCheck();
+  updateDeviceLabel();
+  maybeShowSafety();
+  addMessage("note", "Hold 🎙️ to talk, or type below. Pick your AI provider and device in ⚙️ Settings, then Connect.");
+}
+if(typeof document !== "undefined" && document.getElementById && document.getElementById("term")){
+  boot();
+}
 </script>
 </body>
 </html>
