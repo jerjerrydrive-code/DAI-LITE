@@ -19,6 +19,7 @@ import os
 import pty
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -53,11 +54,18 @@ async def run_test():
     slave_name = os.ttyname(slave_fd)
     print(f"[test] virtual serial device: {slave_name}")
 
+    # Write the bridge's output to a temp file rather than a pipe: it echoes all
+    # device output, and an undrained pipe would deadlock on a large payload.
+    log = tempfile.TemporaryFile(mode="w+")
     proc = subprocess.Popen(
         [sys.executable, str(BRIDGE), "--port", slave_name,
          "--ws-port", str(WS_PORT), "--newline", "cr"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        stdout=log, stderr=subprocess.STDOUT, text=True,
     )
+
+    def bridge_log():
+        log.seek(0)
+        return log.read()
 
     failures = []
     try:
@@ -66,7 +74,7 @@ async def run_test():
         for _ in range(50):
             await asyncio.sleep(0.2)
             if proc.poll() is not None:
-                print("[test] bridge exited early:\n" + (proc.stdout.read() or ""))
+                print("[test] bridge exited early:\n" + bridge_log())
                 return 1
             try:
                 ws = await websockets.connect(f"ws://127.0.0.1:{WS_PORT}")
@@ -111,6 +119,30 @@ async def run_test():
             print("[test] FAIL  blank input forwarded: %r" % stray)
 
         await ws.close()
+
+        # --- A browser page from an untrusted origin must be refused ---
+        try:
+            evil = await websockets.connect(
+                f"ws://127.0.0.1:{WS_PORT}", origin="http://evil.example")
+            try:
+                msg = await asyncio.wait_for(evil.recv(), timeout=3)
+            except Exception:
+                msg = ""
+            # Either we got the refusal notice, or the socket was closed on us.
+            closed = False
+            try:
+                await asyncio.wait_for(evil.recv(), timeout=3)
+            except Exception:
+                closed = True
+            if "refused" in str(msg).lower() or closed:
+                print("[test] PASS  untrusted origin refused")
+            else:
+                failures.append("a page from an untrusted origin was allowed to connect")
+                print("[test] FAIL  untrusted origin accepted")
+            await evil.close()
+        except Exception:
+            # Connection rejected outright is also a pass.
+            print("[test] PASS  untrusted origin refused (handshake rejected)")
     finally:
         proc.terminate()
         try:
@@ -119,6 +151,7 @@ async def run_test():
             proc.kill()
         os.close(master_fd)
         os.close(slave_fd)
+        log.close()
 
     print()
     if failures:

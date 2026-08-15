@@ -52,10 +52,31 @@ It prints the WebSocket URL to use, e.g. `ws://192.168.1.50:8765`.
 
 ## Leave it running (the AIPI-Lite pattern)
 
-Keep the Flipper plugged into a PC (or a Raspberry Pi) with this script running,
-and any phone on the same WiFi can drive it by voice. The bridge survives cable
-unplugs — it retries the serial port every 2s and tells connected clients when it
-reconnects — and accepts multiple app clients at once.
+By default the bridge listens on **localhost only** — safe, and enough when the
+browser and the Flipper are on the same machine. To drive it from your phone:
+
+```sh
+python3 dai_bridge.py --host 0.0.0.0 --token mysecret
+```
+
+Then use `ws://<pc-ip>:8765/?token=mysecret` in DAI-LITE. It survives cable
+unplugs (retries every 2s, and re-detects the port if the device re-enumerates
+under a new name), and accepts multiple app clients at once.
+
+### Security
+
+A WebSocket is **not** covered by the browser's same-origin policy, so without a
+check *any website you happen to visit* could connect to this bridge and issue
+commands to your hardware. The bridge therefore:
+
+- **binds to `127.0.0.1` by default** (`--host 0.0.0.0` to expose it to your LAN),
+- **checks the `Origin` header** — pages served from localhost are allowed;
+  private-LAN pages are allowed once you bind to the LAN; everything else is
+  refused (add trusted ones with `--allow-origin http://192.168.1.20:8000`),
+- supports an optional **`--token`** shared secret on the URL.
+
+`--allow-any-origin` exists as a last resort and prints a warning — it lets any
+site you visit reach the bridge, so only use it on a machine you trust.
 
 ## Test it
 

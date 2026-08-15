@@ -1169,7 +1169,10 @@ function scheduleNoResponseHint(){
 // ---- Optional hands-free loop: auto-send device output to the AI ----
 let awaitingAuto = false;   // a command was sent and we're waiting for its output
 let autoTimer = null;       // debounce: fire once output goes quiet
-function autoSendEnabled(){ return getSettings().autoSendOutput; }
+// Cached so we don't re-read + JSON.parse localStorage on every inbound packet.
+let autoSendCached = false;
+function refreshAutoSendCache(){ autoSendCached = getSettings().autoSendOutput; }
+function autoSendEnabled(){ return autoSendCached; }
 // Called when a command is sent: start (or restart) the auto-send watch. If no
 // output ever arrives (e.g. a silent RPC Flipper), nothing is sent.
 function armAutoSend(){
@@ -1177,6 +1180,10 @@ function armAutoSend(){
   awaitingAuto = autoSendEnabled();
 }
 function fireAutoSend(){
+  // Re-check now, not just when the timer was armed: the user may have turned
+  // auto-send off or disconnected while output was still streaming in.
+  if(!autoSendEnabled() || !isConnected()){ awaitingAuto = false; return; }
+  if(aiBusy){ autoTimer = setTimeout(fireAutoSend, 1000); return; }  // wait our turn
   awaitingAuto = false;
   if(captureBuffer.trim()) sendCapturedOutput();   // still confirm-before-run for any RUN: it proposes
 }
@@ -1253,9 +1260,11 @@ function makeRunRow(command){
 }
 
 /* ---- AI request ---- */
+let aiBusy = false;   // one AI turn at a time, so messages can't interleave
 
 // The user typed/spoke a question: show it as a bubble, then get a reply.
 async function askAI(userText){
+  if(aiBusy){ addMessage("note", "Still working on the previous message — one moment."); return; }
   conversation.push({ role:"user", content:userText });
   addMessage("user", userText);
   await runAiTurn();
@@ -1264,6 +1273,7 @@ async function askAI(userText){
 // Send the latest captured device output back to the assistant as context.
 function sendCapturedOutput(){
   clearTimeout(autoTimer); awaitingAuto = false;   // a manual/auto send cancels any pending auto-send
+  if(aiBusy){ addMessage("note", "Still working on the previous message — tap “→ AI” again in a moment."); return; }
   const out = captureBuffer.trim();
   if(!out){ addMessage("note", "No device output captured yet — run a command first."); return; }
   const content = formatDeviceOutput(lastCommand, out);
@@ -1278,6 +1288,7 @@ async function runAiTurn(){
   const s = getSettings();
   if(!s.baseUrl){ addMessage("error", "Set an AI Base URL in ⚙️ Settings first."); return; }
 
+  aiBusy = true;
   const thinking = addMessage("note", "…thinking");
   try{
     // Use the profile we actually detected on connect (falls back to the
@@ -1306,6 +1317,8 @@ async function runAiTurn(){
     if(thinking) thinking.remove();
     addMessage("error", "Request failed: " + (err && err.message ? err.message : err) +
       "  (Check the Base URL, your key, and CORS support for this provider.)");
+  }finally{
+    aiBusy = false;   // always release, even on early return / error
   }
 }
 
@@ -1542,6 +1555,7 @@ function saveSettings(){
   // Only re-derive the profile from settings when NOT connected — otherwise we'd
   // clobber the profile auto-detected for the live device (wrong line ending etc).
   if(!isConnected()) activeProfile = getActiveProfile(getSettings());
+  refreshAutoSendCache();
   updateDeviceLabel();
 }
 
@@ -1663,6 +1677,10 @@ function recallHistory(dir){
 function clearTerminal(){
   const term = $("term");
   if(term) term.textContent = "";
+  // Clearing means clearing: don't let "→ AI" (or auto-send) later upload output
+  // the user just wiped from the screen.
+  clearTimeout(autoTimer); awaitingAuto = false;
+  captureBuffer = ""; lastCommand = "";
   termLine("Terminal cleared.", "sys");
 }
 function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("chatInput").value = ""; askAI(v); }
@@ -1756,6 +1774,7 @@ function boot(){
   wire();
   featureCheck();
   activeProfile = getActiveProfile(getSettings());
+  refreshAutoSendCache();
   updateDeviceLabel();
   maybeShowSafety();
   addMessage("note", "Hold 🎙️ to talk, or type below. Pick your AI provider and device in ⚙️ Settings, then Connect. Device type defaults to Auto-detect.");

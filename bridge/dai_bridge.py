@@ -75,15 +75,80 @@ def autodetect_port():
     return ports[0].device  # fall back to the first port
 
 
+def client_origin(ws):
+    """Read the Origin header across websockets versions (new + legacy APIs)."""
+    try:
+        return ws.request.headers.get("Origin")          # websockets >= 13 asyncio
+    except AttributeError:
+        pass
+    try:
+        return ws.request_headers.get("Origin")          # legacy
+    except Exception:
+        return None
+
+
+def is_private_host(host):
+    """True for loopback / RFC1918 LAN hosts."""
+    host = (host or "").strip("[]")
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return True
+    parts = host.split(".")
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        a, b = int(parts[0]), int(parts[1])
+        return a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168) or a == 127
+    return False
+
+
 class Bridge:
     """Relays bytes between one serial port and any number of WebSocket clients."""
 
-    def __init__(self, port, baud, newline):
+    def __init__(self, port, baud, newline, autodetected=False,
+                 allowed_origins=None, allow_any_origin=False,
+                 allow_lan_origins=False, token=None):
         self.port = port
         self.baud = baud
         self.newline = newline
+        self.autodetected = autodetected      # re-detect the port after a replug
+        self.allowed_origins = set(allowed_origins or [])
+        self.allow_any_origin = allow_any_origin
+        self.allow_lan_origins = allow_lan_origins
+        self.token = token
         self.serial = None
         self.clients = set()
+
+    # ---- Access control -------------------------------------------------
+    # A WebSocket is NOT protected by the browser's same-origin policy: any page
+    # you happen to visit could otherwise connect to this bridge and drive your
+    # hardware. So we check the Origin header (and an optional shared token).
+    def origin_allowed(self, origin):
+        if self.allow_any_origin:
+            return True
+        if not origin or origin == "null":
+            return True                        # non-browser client (curl, script)
+        if origin in self.allowed_origins:
+            return True
+        try:
+            from urllib.parse import urlparse
+            host = urlparse(origin).hostname
+        except Exception:
+            return False
+        if host in ("localhost", "127.0.0.1", "::1"):
+            return True                        # page served from this machine
+        return bool(self.allow_lan_origins and is_private_host(host))
+
+    def token_ok(self, ws):
+        if not self.token:
+            return True
+        raw = ""
+        try:
+            raw = ws.request.path                        # new API
+        except AttributeError:
+            raw = getattr(ws, "path", "") or ""          # legacy
+        try:
+            from urllib.parse import urlparse, parse_qs
+            return parse_qs(urlparse(raw).query).get("token", [None])[0] == self.token
+        except Exception:
+            return False
 
     def open_serial(self):
         # timeout=0 -> non-blocking reads, so the poll loop stays responsive.
@@ -120,7 +185,12 @@ class Bridge:
             await asyncio.sleep(0.02)  # ~50Hz poll; gentle on the CPU
 
     async def reconnect(self):
-        """If the cable is yanked, keep trying to reopen the port."""
+        """If the cable is yanked, keep trying to reopen the port.
+
+        A replugged device often re-enumerates under a different name
+        (/dev/ttyACM0 -> /dev/ttyACM1), so when we auto-detected the port
+        originally we re-detect it on each retry instead of retrying a stale path.
+        """
         try:
             if self.serial:
                 self.serial.close()
@@ -129,6 +199,11 @@ class Bridge:
         self.serial = None
         while self.serial is None:
             await asyncio.sleep(2)
+            if self.autodetected:
+                found = autodetect_port()
+                if found and found != self.port:
+                    print(f"[bridge] device moved to {found}")
+                    self.port = found
             try:
                 self.open_serial()
                 await self.broadcast("\r\n[bridge] serial reconnected\r\n")
@@ -142,6 +217,27 @@ class Bridge:
         (which call handler(ws, path)) and new ones (which call handler(ws)).
         """
         peer = getattr(ws, "remote_address", ("?",))[0]
+        origin = client_origin(ws)
+
+        # Reject pages we don't trust, and bad tokens, before anything else.
+        if not self.origin_allowed(origin):
+            print(f"[bridge] REFUSED connection from {peer} (origin {origin!r})")
+            try:
+                await ws.send("[bridge] refused: origin not allowed. "
+                              "Start the bridge with --allow-origin <origin> to permit it.\r\n")
+                await ws.close(1008, "origin not allowed")
+            except Exception:
+                pass
+            return
+        if not self.token_ok(ws):
+            print(f"[bridge] REFUSED connection from {peer} (bad token)")
+            try:
+                await ws.send("[bridge] refused: bad or missing token\r\n")
+                await ws.close(1008, "bad token")
+            except Exception:
+                pass
+            return
+
         self.clients.add(ws)
         print(f"[bridge] app connected from {peer} ({len(self.clients)} total)")
         try:
@@ -154,13 +250,21 @@ class Bridge:
                 cmd = message.rstrip("\r\n")
                 if not cmd:
                     continue
-                if self.serial:
+                if not self.serial:
+                    await ws.send("[bridge] serial not connected\r\n")
+                    continue
+                try:
                     self.serial.write((cmd + self.newline).encode("utf-8"))
                     print(f"[bridge] > {cmd}")
-                else:
-                    await ws.send("[bridge] serial not connected\r\n")
-        except Exception:
-            pass
+                except (OSError, serial.SerialException) as e:
+                    # Tell the user their command did NOT go out, then recover.
+                    print(f"[bridge] write failed: {e}")
+                    await ws.send(f"[bridge] write failed: {e}\r\n")
+                    asyncio.create_task(self.reconnect())
+        except websockets.exceptions.ConnectionClosed:
+            pass                      # normal disconnect
+        except Exception as e:
+            print(f"[bridge] client error: {e}")
         finally:
             self.clients.discard(ws)
             print(f"[bridge] app disconnected ({len(self.clients)} left)")
@@ -172,17 +276,34 @@ async def main_async(args):
     if not port:
         sys.exit("No serial ports found. Plug in your device, or use --list.")
 
-    bridge = Bridge(port, args.baud, newline)
+    lan = args.host not in ("127.0.0.1", "localhost", "::1")
+    bridge = Bridge(port, args.baud, newline,
+                    autodetected=(args.port is None),
+                    allowed_origins=args.allow_origin,
+                    allow_any_origin=args.allow_any_origin,
+                    allow_lan_origins=lan,     # serving the LAN implies LAN pages
+                    token=args.token)
     try:
         bridge.open_serial()
     except Exception as e:
         sys.exit(f"Could not open {port}: {e}\nTry --list to see available ports.")
 
-    print(f"[bridge] WebSocket listening on ws://0.0.0.0:{args.ws_port}")
-    print(f"[bridge] In DAI-LITE use:  ws://<this-pc-ip>:{args.ws_port}")
+    suffix = f"/?token={args.token}" if args.token else ""
+    print(f"[bridge] WebSocket listening on ws://{args.host}:{args.ws_port}")
+    if lan:
+        print(f"[bridge] In DAI-LITE use:  ws://<this-pc-ip>:{args.ws_port}{suffix}")
+        print("[bridge] Reachable from your LAN. Pages served from private "
+              "addresses are allowed; add --token for a shared secret.")
+    else:
+        print(f"[bridge] In DAI-LITE use:  ws://localhost:{args.ws_port}{suffix}")
+        print("[bridge] Local-only (safe default). Use --host 0.0.0.0 to allow "
+              "other devices on your WiFi.")
+    if args.allow_any_origin:
+        print("[bridge] WARNING: --allow-any-origin lets ANY website that you "
+              "visit drive this device. Use only on a trusted machine.")
     print("[bridge] Ctrl+C to quit.\n")
 
-    async with websockets.serve(bridge.handle_client, "0.0.0.0", args.ws_port):
+    async with websockets.serve(bridge.handle_client, args.host, args.ws_port):
         await bridge.pump_serial()
 
 
@@ -191,6 +312,15 @@ def main():
     ap.add_argument("--port", help="serial port (e.g. COM3, /dev/ttyACM0). Default: auto-detect")
     ap.add_argument("--baud", type=int, default=115200, help="serial baud rate (default 115200)")
     ap.add_argument("--ws-port", type=int, default=8765, help="WebSocket port (default 8765)")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="bind address (default 127.0.0.1 = this machine only; "
+                         "use 0.0.0.0 to allow phones on your WiFi)")
+    ap.add_argument("--allow-origin", action="append", default=[],
+                    help="extra browser origin allowed to connect, e.g. "
+                         "http://192.168.1.20:8000 (repeatable)")
+    ap.add_argument("--allow-any-origin", action="store_true",
+                    help="allow ANY website to connect (unsafe; last resort)")
+    ap.add_argument("--token", help="require ?token=... on the WebSocket URL")
     ap.add_argument("--newline", choices=("cr", "lf", "crlf"), default="cr",
                     help="line ending sent to the device (default cr, which Flipper uses)")
     ap.add_argument("--list", action="store_true", help="list serial ports and exit")
