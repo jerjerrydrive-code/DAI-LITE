@@ -2490,6 +2490,10 @@ function wire(){
   $("settingsOverlay").addEventListener("click", e => {
     if(e.target === $("settingsOverlay")) $("settingsOverlay").classList.remove("show");
   });
+  // Escape closes Settings (not the one-time safety notice, which needs a click).
+  document.addEventListener("keydown", e => {
+    if(e.key === "Escape") $("settingsOverlay").classList.remove("show");
+  });
 }
 
 /* Detect unsupported browsers and degrade gracefully with plain messages. */
