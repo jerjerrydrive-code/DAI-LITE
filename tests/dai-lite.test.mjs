@@ -556,6 +556,23 @@ test("appendMemory de-dupes (case-insensitive), trims, and caps", () => {
   assert.deepEqual(big.split("\n"), ["fact6", "fact7", "fact8", "fact9"]);
 });
 
+test("parseFlipperMemoryRead extracts file content, dropping CLI noise", () => {
+  const raw = [
+    "storage read /ext/dai/memory.txt",
+    "Size: 42",
+    "user likes teal",
+    "daughter is named Riley",
+    "> ",
+  ].join("\r\n");
+  assert.deepEqual(D.parseFlipperMemoryRead(raw), ["user likes teal", "daughter is named Riley"]);
+});
+
+test("parseFlipperMemoryRead is safe on empty / missing output", () => {
+  assert.deepEqual(D.parseFlipperMemoryRead(""), []);
+  assert.deepEqual(D.parseFlipperMemoryRead("Size: 0\r\n"), []);
+  assert.deepEqual(D.parseFlipperMemoryRead(null), []);
+});
+
 test("buildSystemPrompt injects memory and teaches REMEMBER", () => {
   const p = D.buildSystemPrompt(D.DEVICE_PROFILES.flipper, "", "user likes teal");
   assert.match(p, /What you remember about the user/);

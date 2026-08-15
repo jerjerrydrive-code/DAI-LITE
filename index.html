@@ -368,6 +368,11 @@ Type a command below or let the assistant propose one.
       <span class="hint" style="flex:1">Stored only in this browser. Export includes it.</span>
       <button id="memoryClear" class="btn" type="button" title="Erase all remembered facts">Clear memory</button>
     </div>
+    <div class="inline" style="margin-top:6px">
+      <button id="memoryToFlipper" class="btn" type="button" title="Write memory to the Flipper SD card">⬆ Save to Flipper</button>
+      <button id="memoryFromFlipper" class="btn" type="button" title="Read memory back from the Flipper SD card">⬇ Load from Flipper</button>
+    </div>
+    <div class="hint">Beta — stores /ext/dai/memory.txt on the SD card via the CLI. Needs a connected Flipper with the text CLI (USB/ESP32 bridge).</div>
 
     <details class="cors">
       <summary>Endpoint blocked by CORS? Known fixes</summary>
@@ -946,6 +951,22 @@ function appendMemory(existing, facts, cap){
   return (lines.length > max ? lines.slice(lines.length - max) : lines).join("\n");
 }
 
+/* Parse the output of `storage read /ext/dai/memory.txt` into memory facts,
+   dropping the CLI header (Size: N), prompts, and echoed commands. */
+function parseFlipperMemoryRead(raw){
+  const out = [];
+  for(const line of String(raw == null ? "" : raw).split(/\r?\n/)){
+    const t = line.trim();
+    if(!t) continue;
+    if(/^Size:\s*\d+/i.test(t)) continue;                          // storage read header
+    if(/^>+/.test(t)) continue;                                    // CLI prompt
+    if(/^storage\s+(read|write|mkdir|remove)\b/i.test(t)) continue; // echoed commands
+    if(/Ctrl\+C|Ctrl-C|New line by/i.test(t)) continue;            // write-mode banner
+    out.push(t);
+  }
+  return out;
+}
+
 /* Spell the brand phonetically so voices say "daylight", not "die-light". */
 function pronounceForSpeech(text){
   return String(text == null ? "" : text)
@@ -1124,7 +1145,7 @@ if(typeof globalThis !== "undefined"){
     providerName, describeConnections,
     navigateHistory, pushHistory,
     normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, LITE_PERSONA, DAI_PERSONA, personaForMode,
-    extractMemories, appendMemory,
+    extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech
@@ -1402,6 +1423,53 @@ function sendCommand(command){
       return false;
     }
   });
+}
+
+// Write raw bytes to the device with no "> " echo and no forced line ending.
+// Used for interactive flows like `storage write` (content, then Ctrl+C).
+function sendRaw(text){
+  if(activeTransport === "ws"){ if(ws && ws.readyState === 1) ws.send(text); return Promise.resolve(); }
+  if(!txChar) return Promise.resolve();
+  return queueWrite(async () => {
+    const p = activeProfile || DEVICE_PROFILES.flipper;
+    const chunks = chunkBytes(new TextEncoder().encode(text), p.chunkSize);
+    for(const c of chunks){
+      if(txChar.writeValueWithResponse) await txChar.writeValueWithResponse(c);
+      else if(txChar.writeValue) await txChar.writeValue(c);
+      else await txChar.writeValueWithoutResponse(c);
+      await sleep(12);
+    }
+  });
+}
+
+// --- Phase 2: memory on the Flipper SD card (beta; needs a real Flipper CLI) ---
+async function saveMemoryToFlipper(){
+  if(!isConnected()){ addMessage("note", "Connect the Flipper first."); return; }
+  const mem = getMemory().trim();
+  if(!mem){ addMessage("note", "Memory is empty — nothing to save."); return; }
+  addMessage("note", "Saving memory to /ext/dai/memory.txt on the Flipper…");
+  await sendCommand("storage mkdir /ext/dai");              // fine if it exists
+  await sleep(250);
+  await sendCommand("storage remove /ext/dai/memory.txt");  // overwrite cleanly (fine if missing)
+  await sleep(250);
+  await sendCommand("storage write /ext/dai/memory.txt");   // enters write mode
+  await sleep(450);
+  await sendRaw(mem + "\n");                                // the content
+  await sleep(250);
+  await sendRaw("\x03");                                    // Ctrl+C ends the write
+  addMessage("note", "Sent. Check the terminal for the Flipper's confirmation.");
+}
+async function loadMemoryFromFlipper(){
+  if(!isConnected()){ addMessage("note", "Connect the Flipper first."); return; }
+  captureBuffer = "";
+  addMessage("note", "Reading memory from the Flipper…");
+  await sendCommand("storage read /ext/dai/memory.txt");
+  await sleep(1600);                                        // let the file stream back
+  const facts = parseFlipperMemoryRead(captureBuffer);
+  if(!facts.length){ addMessage("note", "No memory found on the Flipper (file missing or empty)."); return; }
+  setMemory(appendMemory(getMemory(), facts));
+  if($("setMemory")) $("setMemory").value = getMemory();
+  addMessage("note", "Loaded " + facts.length + " fact(s) from the Flipper into memory.");
 }
 
 // If a command produces no reply, the device probably isn't speaking raw text
@@ -2332,6 +2400,8 @@ function wire(){
   $("easySetup").addEventListener("click", easySetup);
   $("modeBtn").addEventListener("click", () => setMode(getSettings().mode === "dai" ? "lite" : "dai"));
   $("memoryClear").addEventListener("click", () => { $("setMemory").value = ""; });
+  $("memoryToFlipper").addEventListener("click", () => { setMemory($("setMemory").value); saveMemoryToFlipper(); });
+  $("memoryFromFlipper").addEventListener("click", loadMemoryFromFlipper);
   // OS voices load asynchronously; refresh the picker when they arrive.
   if(synth) synth.addEventListener("voiceschanged", () => populateDeviceVoices(getSettings().voice.deviceVoice));
   document.querySelectorAll("[data-preset]").forEach(btn => {

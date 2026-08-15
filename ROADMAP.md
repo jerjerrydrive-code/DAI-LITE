@@ -12,7 +12,7 @@ Same brain, different personality + feature emphasis, switchable with one tap.
 
 ---
 
-## Phase 1 — Modes + Memory (browser)  ✅ building now
+## Phase 1 — Modes + Memory (browser)  ✅ built
 No server, no login. Fully inside the single HTML file.
 
 1. **Mode switch** (Dai ⇄ Lite) in the top bar; each mode has its own persona.
@@ -23,7 +23,7 @@ No server, no login. Fully inside the single HTML file.
 4. **Memory editor** in Settings (view / edit / clear).
 5. **Custom persona box** already ships — personal details stay local.
 
-## Phase 2 — Memory on the Flipper (SD card)
+## Phase 2 — Memory on the Flipper (SD card)  ✅ built (beta, needs hardware)
 Make the Flipper the memory stick.
 
 1. `storage write /ext/dai/memory.txt` from the app (handle the CLI write
@@ -37,7 +37,7 @@ Make the Flipper the memory stick.
    re-downloaded" for good.
 2. Optional password-lock on the exported file.
 
-## Phase 4 — Connections dashboard
+## Phase 4 — Connections dashboard  ✅ built
 The "what's linked" screen, done honestly (status, not fake logins):
 
 1. A panel showing each capability and its state — AI ✓/✗, Voice (device/
