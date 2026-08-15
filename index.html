@@ -1240,12 +1240,15 @@ function updateModeUI(){
 /* ---- Terminal panel ---- */
 function termAppend(text, cls){
   const term = $("term"); if(!term) return;
+  // Only follow output if the user is already near the bottom, so scrolling up
+  // to read history isn't yanked back down.
+  const nearBottom = term.scrollHeight - term.scrollTop - term.clientHeight < 40;
   const span = document.createElement("span");
   if(cls) span.className = cls;
   span.textContent = text;
   term.appendChild(span);
   while(term.childNodes.length > 600) term.removeChild(term.firstChild); // bound growth
-  term.scrollTop = term.scrollHeight;
+  if(nearBottom) term.scrollTop = term.scrollHeight;
 }
 function termLine(text, cls){ termAppend(text + "\n", cls); }
 
