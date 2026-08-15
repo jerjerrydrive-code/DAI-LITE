@@ -878,7 +878,9 @@ function buildHeaders(settings, origin){
 function normalizeWsUrl(url){
   const u = String(url == null ? "" : url).trim();
   if(!u) return "";
-  return /^wss?:\/\//i.test(u) ? u : "ws://" + u;
+  if(/^wss?:\/\//i.test(u)) return u;                 // already ws:// or wss://
+  if(/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) return u;    // some other scheme — leave it, don't mangle
+  return "ws://" + u;                                 // bare host[:port] — add ws://
 }
 
 /* Join a Base URL to the chat/completions path without doubling slashes. */
@@ -991,8 +993,12 @@ function parseFlipperMemoryRead(raw){
    long replies (Chrome silently stops after a long single utterance). */
 function splitSpeech(text, maxLen){
   maxLen = maxLen || 200;
+  // Split after . ! ? — done without a lookbehind (unsupported on older Safari,
+  // where an unsupported regex literal would break the whole script at parse).
+  const sentences = String(text == null ? "" : text)
+    .replace(/([.!?])\s+/g, "$1\n").split("\n");
   const parts = [];
-  for(const sentence of String(text == null ? "" : text).split(/(?<=[.!?])\s+/)){
+  for(const sentence of sentences){
     let s = sentence.trim();
     if(!s) continue;
     while(s.length > maxLen){
@@ -1540,6 +1546,8 @@ async function maybeHaptic(){
   if(ackBusy || memorySyncing) return;
   if(!getSettings().hapticAck) return;
   if(!activeProfile || activeProfile.key !== "flipper") return;
+  // Don't let the buzz command's echo land in the auto-send capture window.
+  if(awaitingAuto) return;
   ackBusy = true;
   try{ await sendRaw("vibro 1\r"); await sleep(120); await sendRaw("vibro 0\r"); }
   finally{ ackBusy = false; }
@@ -2441,6 +2449,7 @@ function renderQuickCommands(){
   });
 }
 function newChat(){
+  if(aiBusy){ addMessage("note", "Finishing the current reply — tap New chat again in a moment."); return; }
   conversation = [];                 // fresh context; long-term memory is untouched
   const chat = $("chat"); if(chat) chat.textContent = "";
   stopSpeaking();

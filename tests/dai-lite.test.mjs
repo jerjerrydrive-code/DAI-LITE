@@ -295,6 +295,7 @@ test("normalizeWsUrl adds ws:// only when the scheme is missing", () => {
   assert.equal(D.normalizeWsUrl("ws://host:81"), "ws://host:81");
   assert.equal(D.normalizeWsUrl("wss://host:81"), "wss://host:81");
   assert.equal(D.normalizeWsUrl("  10.0.0.2:81  "), "ws://10.0.0.2:81");
+  assert.equal(D.normalizeWsUrl("http://10.0.0.2:81"), "http://10.0.0.2:81"); // other scheme left as-is
   assert.equal(D.normalizeWsUrl(""), "");
 });
 
