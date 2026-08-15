@@ -236,6 +236,7 @@
       <div class="logo">DL</div>
       <h1>DAI&#8209;LITE <small>· AI for BLE gear</small></h1>
     </div>
+    <button id="modeBtn" class="btn" title="Switch mode">Lite</button>
     <div class="spacer"></div>
     <div id="status" class="status"><span class="dot"></span><span class="txt">Disconnected</span></div>
     <button id="muteBtn" class="btn icon" title="Mute / unmute the assistant voice">🔊</button>
@@ -344,10 +345,17 @@ Type a command below or let the assistant propose one.
     </label>
 
     <label>Assistant persona <span class="hint">— system prompt; stored only in this browser</span></label>
-    <textarea id="setPersona" placeholder="Leave blank for the built-in persona. Paste your own character/context here (e.g. your projects, how you like answers). The app always keeps its Run-command rules on top of this."></textarea>
+    <textarea id="setPersona" placeholder="Leave blank for the built-in Dai/Lite persona. Paste your own character/context here. The app always keeps its Run-command rules on top of this."></textarea>
     <div class="inline" style="margin-top:6px">
       <span class="hint" style="flex:1">Personal details you add here never leave your device.</span>
       <button id="personaDefault" class="btn" type="button" title="Load the built-in persona to edit">Use default</button>
+    </div>
+
+    <label>Memory <span class="hint">— facts the assistant recalls across sessions (Dai mode)</span></label>
+    <textarea id="setMemory" placeholder="Empty. The assistant adds to this when it says 'REMEMBER: …', or you can edit it directly."></textarea>
+    <div class="inline" style="margin-top:6px">
+      <span class="hint" style="flex:1">Stored only in this browser. Export includes it.</span>
+      <button id="memoryClear" class="btn" type="button" title="Erase all remembered facts">Clear memory</button>
     </div>
 
     <details class="cors">
@@ -635,6 +643,7 @@ function normalizeSettings(raw){
     wsUrl:         s.wsUrl || "",
     autoSendOutput: !!s.autoSendOutput,
     streaming:     s.streaming !== false,   // on by default; replies appear as they generate
+    mode:          s.mode === "dai" ? "dai" : "lite",   // Dai companion vs Lite Flipper co-pilot
     persona:       s.persona || "",         // custom system prompt; stored only in this browser
     voice:         normalizeVoice(s.voice)
   };
@@ -711,39 +720,62 @@ function chunkBytes(bytes, size){
   return out;
 }
 
-/* The shippable default persona. Personal details and any paywall/subscription
-   bypass are deliberately NOT here — the user adds those in their own local
-   persona box (Settings), which never leaves the browser. */
-const DEFAULT_PERSONA =
-`You are DAI-LITE — a direct, confident technical co-pilot and daily companion.
-You are always "on": switch seamlessly between casual talk and elite technical
-work, and never gate your help behind trigger words.
+/* Two mode personas. Personal details and any paywall/subscription bypass are
+   deliberately NOT here — the user adds those in their local persona box or
+   memory, which never leave the browser. */
+const LITE_PERSONA =
+`You are DAI-LITE in Lite mode — a focused Flipper Zero and hardware coding
+co-pilot. Your job is to light the way through the build.
 
 Style:
-- No fluff. Skip "As an AI…", "It's important to remember…", and long theory.
-  Treat the user as a capable peer.
+- No fluff. Skip "As an AI…" and long theory. Treat the user as a capable peer.
 - Build mode is default: when asked to make something, write the actual code,
   script, or file — not a tutorial. If details are missing, give the closest
   working prototype and ask for the specific missing parameters.
-- For Flipper Zero work, produce ready-to-run artifacts: complete DuckyScript
-  .txt (with explicit DELAY timing and comments), Furi C with the right
-  #include <furi.h>/GUI headers and entry points plus the ufbt commands to
-  build/launch, and .sub/.nfc files in exact Flipper file-format text blocks.
+- Produce ready-to-run Flipper artifacts: complete DuckyScript .txt (explicit
+  DELAY timing + comments), Furi C with the right #include <furi.h>/GUI headers
+  and entry points plus the ufbt build/launch commands, and .sub/.nfc files in
+  exact Flipper file-format text blocks.
 - White-hat: help fully with security research, pentesting, and hardware
-  analysis on gear and systems the user owns or is authorized to test. Be
-  honest when something needs physical capture/testing you can't simulate.`;
+  analysis on gear the user owns or is authorized to test. Be honest when
+  something needs physical capture/testing you can't simulate.`;
 
-/* Build the system prompt: an intro persona (default or the user's custom one)
-   followed by the RUN: mechanics the app depends on, tailored to the device. */
-function buildSystemPrompt(profile, persona){
+const DAI_PERSONA =
+`You are Dai — a warm, direct daily companion. Talk like a friend and a sharp
+technical partner in the same breath: casual banter, life stuff, or deep
+technical work, always fully capable and never gated behind keywords.
+
+Style:
+- No fluff, no lectures. Mirror the user's energy; read between typos and
+  half-thoughts and deliver the answer.
+- You keep long-term memory about the user (shown below when present) and use it
+  naturally — never announce that you're updating or reading memory.
+- Be honest when you're unsure. You still write real code and control the
+  Flipper when asked.`;
+
+// Back-compat alias; Lite is the default flavor.
+const DEFAULT_PERSONA = LITE_PERSONA;
+function personaForMode(mode){ return mode === "dai" ? DAI_PERSONA : LITE_PERSONA; }
+
+/* Build the system prompt: an intro persona (default or the user's custom one),
+   optional long-term memory, then the RUN: mechanics the app depends on. */
+function buildSystemPrompt(profile, persona, memory){
   const label = (profile && profile.label) || "a device";
   const intro = (persona && String(persona).trim()) ? String(persona).trim() : DEFAULT_PERSONA;
-  let p = intro + `
+  const mem = String(memory == null ? "" : memory).trim();
+  let p = intro + (mem ? `
+
+What you remember about the user (persists across sessions — use it naturally,
+don't announce it):
+${mem}` : "") + `
 
 You also control ${label} over a text command-line interface (CLI) through a
 serial link (Bluetooth or WiFi bridge).
 
 How to respond:
+- To save a durable fact about the user for future sessions, put it on ITS OWN
+  LINE as "REMEMBER: <fact>". The app stores it. Only remember things that will
+  matter later; don't remember secrets unless asked.
 - Reply in plain, short language suitable for reading aloud.
 - Whenever a command should run on the device, put it ON ITS OWN LINE beginning
   EXACTLY with "RUN: " — for example:
@@ -877,6 +909,30 @@ function stripRunLines(text){
   return String(text == null ? "" : text)
     .split("\n").filter(l => !/^\s*RUN:/.test(l))
     .join(" ").replace(/\s+/g," ").trim();
+}
+
+/* Pull "REMEMBER: <fact>" lines out of a reply. Returns the facts and the text
+   with those lines removed (so they don't get read aloud). */
+function extractMemories(text){
+  const facts = [], keep = [];
+  for(const line of String(text == null ? "" : text).split("\n")){
+    const m = line.match(/^\s*REMEMBER:\s*(.+?)\s*$/i);
+    if(m) facts.push(m[1]); else keep.push(line);
+  }
+  return { facts, text: keep.join("\n") };
+}
+
+/* Append new facts to the memory blob: one per line, trimmed, de-duped
+   (case-insensitive), oldest dropped past the cap. */
+function appendMemory(existing, facts, cap){
+  const lines = String(existing == null ? "" : existing).split("\n").map(l => l.trim()).filter(Boolean);
+  const seen = new Set(lines.map(l => l.toLowerCase()));
+  for(const f of (facts || [])){
+    const t = String(f == null ? "" : f).trim();
+    if(t && !seen.has(t.toLowerCase())){ lines.push(t); seen.add(t.toLowerCase()); }
+  }
+  const max = cap || 60;
+  return (lines.length > max ? lines.slice(lines.length - max) : lines).join("\n");
 }
 
 /* Spell the brand phonetically so voices say "daylight", not "die-light". */
@@ -1025,7 +1081,9 @@ if(typeof globalThis !== "undefined"){
     appendCapture, formatDeviceOutput,
     resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider, mergeProviders,
     navigateHistory, pushHistory,
-    normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
+    normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, LITE_PERSONA, DAI_PERSONA, personaForMode,
+    extractMemories, appendMemory,
+    resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech
   };
@@ -1060,6 +1118,38 @@ const SETTINGS_KEY = "dailite_settings";
 function getSettings(){
   try{ return normalizeSettings(localStorage.getItem(SETTINGS_KEY)); }
   catch(_){ return normalizeSettings(null); }
+}
+
+/* ---- Long-term memory (localStorage) ---- */
+const MEMORY_KEY = "dailite_memory";
+function getMemory(){ try{ return localStorage.getItem(MEMORY_KEY) || ""; }catch(_){ return ""; } }
+function setMemory(v){ try{ localStorage.setItem(MEMORY_KEY, v || ""); }catch(_){} }
+function persistMemory(facts){
+  if(!facts || !facts.length) return;
+  setMemory(appendMemory(getMemory(), facts));
+  facts.forEach(f => addMessage("note", "🧠 Remembered: " + f));
+}
+// Persist any REMEMBER: facts from a reply and return the text without them.
+function afterReplyClean(reply){
+  const { facts, text } = extractMemories(reply);
+  persistMemory(facts);
+  return (text && text.trim()) ? text : reply;
+}
+
+/* ---- Mode (Dai companion vs Lite Flipper co-pilot) ---- */
+function setMode(mode){
+  const s = getSettings();
+  s.mode = (mode === "dai") ? "dai" : "lite";
+  try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }catch(_){}
+  updateModeUI();
+}
+function updateModeUI(){
+  const b = $("modeBtn"); if(!b) return;
+  const dai = getSettings().mode === "dai";
+  b.textContent = dai ? "Dai" : "Lite";
+  b.classList.toggle("on", dai);
+  b.title = dai ? "Dai mode — companion + memory. Tap for Lite."
+                : "Lite mode — Flipper coding co-pilot. Tap for Dai.";
 }
 
 /* ---- Terminal panel ---- */
@@ -1411,9 +1501,10 @@ async function runAiTurn(){
   const thinking = addMessage("note", "…thinking");
   const wantStream = s.streaming && !streamBroken;
   try{
-    // Use the profile we actually detected on connect (falls back to the
-    // settings default when not yet connected).
-    const systemPrompt = buildSystemPrompt(activeProfile || getActiveProfile(s), s.persona);
+    // Persona depends on the mode (unless the user set a custom persona), and
+    // the assistant's long-term memory is injected too.
+    const persona = s.persona || personaForMode(s.mode);
+    const systemPrompt = buildSystemPrompt(activeProfile || getActiveProfile(s), persona, getMemory());
 
     // Free, keyless AI via the Puter SDK (baseUrl "puter").
     if(/^\s*puter\b/i.test(s.baseUrl)){
@@ -1427,9 +1518,10 @@ async function runAiTurn(){
       }
       if(thinking) thinking.remove();
       if(!reply){ addMessage("error", "Puter AI returned an empty response."); return; }
-      conversation.push({ role:"assistant", content:reply });
-      addMessage("assistant", reply);
-      speak(pronounceForSpeech(stripRunLines(reply)));
+      const clean = afterReplyClean(reply);
+      conversation.push({ role:"assistant", content:clean });
+      addMessage("assistant", clean);
+      speak(pronounceForSpeech(stripRunLines(clean)));
       return;
     }
 
@@ -1479,6 +1571,9 @@ async function runAiTurn(){
     }
 
     if(!reply){ addMessage("error", "The AI returned an empty response."); return; }
+    // Streaming already persisted memory + rendered a cleaned bubble; other
+    // paths clean + persist here.
+    if(!rendered) reply = afterReplyClean(reply);
     conversation.push({ role:"assistant", content:reply });
     if(!rendered) addMessage("assistant", reply);
     speak(pronounceForSpeech(stripRunLines(reply)));   // read the prose aloud (not raw commands)
@@ -1522,8 +1617,10 @@ async function consumeStream(res){
   try{ pump(dec.decode()); }catch(_){}
   if(buf.trim()) pump("\n\n");
   const out = full.trim() ? full : "";   // whitespace-only = nothing usable
-  bubble.finish(out);                    // re-render with Run buttons, or drop the bubble
-  return out;
+  if(!out){ bubble.finish(""); return ""; }
+  const clean = afterReplyClean(out);    // persist REMEMBER: facts, strip them from view
+  bubble.finish(clean);                  // re-render with Run buttons, cleaned
+  return clean;
 }
 
 // A chat bubble that can be updated as tokens arrive, then finalized.
@@ -1813,7 +1910,7 @@ function deleteSelectedProvider(){
 }
 function exportProviders(){
   const list = getProviders();
-  const blob = new Blob([JSON.stringify({ dailite_providers:list }, null, 2)], { type:"application/json" });
+  const blob = new Blob([JSON.stringify({ dailite_providers:list, dailite_memory:getMemory() }, null, 2)], { type:"application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = "dai-lite-keys.json";
@@ -1826,10 +1923,18 @@ function importProvidersFile(file){
   const reader = new FileReader();
   reader.onload = () => {
     try{
-      const { list, count } = mergeProviders(getProviders(), JSON.parse(reader.result));
+      const parsed = JSON.parse(reader.result);
+      const { list, count } = mergeProviders(getProviders(), parsed);
       setProviders(list);
       populateProviderSelect();
-      $("modelHint").textContent = "Imported " + count + " key set(s). Pick one above and Load.";
+      // Restore memory too, if the backup carried it (append, don't clobber).
+      let memNote = "";
+      if(parsed && typeof parsed.dailite_memory === "string" && parsed.dailite_memory.trim()){
+        setMemory(appendMemory(getMemory(), parsed.dailite_memory.split("\n")));
+        if($("setMemory")) $("setMemory").value = getMemory();
+        memNote = " + memory";
+      }
+      $("modelHint").textContent = "Imported " + count + " key set(s)" + memNote + ". Pick one above and Load.";
     }catch(e){ $("modelHint").textContent = "Import failed — not a valid backup file."; }
   };
   reader.readAsText(file);
@@ -1912,6 +2017,7 @@ function openSettings(){
   $("setAutoSend").checked = s.autoSendOutput;
   $("setStreaming").checked = s.streaming;
   $("setPersona").value = s.persona;
+  $("setMemory").value = getMemory();
   // Voice fields
   const v = s.voice;
   $("voiceEngine").value = v.engine;
@@ -1948,9 +2054,11 @@ function saveSettings(){
     wsUrl:      $("setWsUrl").value.trim(),
     autoSendOutput: $("setAutoSend").checked,
     streaming: $("setStreaming").checked,
+    mode: getSettings().mode,                 // preserve the top-bar mode toggle
     persona: $("setPersona").value.trim(),
     voice: voiceFromForm()
   };
+  setMemory($("setMemory").value);
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   $("settingsOverlay").classList.remove("show");
   // Only re-derive the profile from settings when NOT connected — otherwise we'd
@@ -2156,8 +2264,10 @@ function wire(){
       $("voiceHint").textContent = p.needsKey ? "Add a TTS key, then Test." : "No key needed — press Test.";
     });
   });
-  $("personaDefault").addEventListener("click", () => { $("setPersona").value = DEFAULT_PERSONA; });
+  $("personaDefault").addEventListener("click", () => { $("setPersona").value = personaForMode(getSettings().mode); });
   $("easySetup").addEventListener("click", easySetup);
+  $("modeBtn").addEventListener("click", () => setMode(getSettings().mode === "dai" ? "lite" : "dai"));
+  $("memoryClear").addEventListener("click", () => { $("setMemory").value = ""; });
   // OS voices load asynchronously; refresh the picker when they arrive.
   if(synth) synth.addEventListener("voiceschanged", () => populateDeviceVoices(getSettings().voice.deviceVoice));
   document.querySelectorAll("[data-preset]").forEach(btn => {
@@ -2206,6 +2316,7 @@ function boot(){
   activeProfile = getActiveProfile(getSettings());
   refreshAutoSendCache();
   updateDeviceLabel();
+  updateModeUI();
   maybeShowSafety();
   addMessage("note", "Hold 🎙️ to talk, or type below. Pick your AI provider and device in ⚙️ Settings, then Connect. Device type defaults to Auto-detect.");
 }

@@ -481,6 +481,52 @@ test("provider library: remove and find", () => {
 });
 
 /* ========================================================================
+   Modes + memory
+   ======================================================================== */
+test("personaForMode picks the right persona", () => {
+  assert.equal(D.personaForMode("dai"), D.DAI_PERSONA);
+  assert.equal(D.personaForMode("lite"), D.LITE_PERSONA);
+  assert.equal(D.personaForMode(undefined), D.LITE_PERSONA); // default
+});
+
+test("normalizeSettings coerces mode (default lite)", () => {
+  assert.equal(D.normalizeSettings("{}").mode, "lite");
+  assert.equal(D.normalizeSettings('{"mode":"dai"}').mode, "dai");
+  assert.equal(D.normalizeSettings('{"mode":"bogus"}').mode, "lite");
+});
+
+test("extractMemories pulls REMEMBER lines and strips them from the text", () => {
+  const r = D.extractMemories("Nice to meet you.\nREMEMBER: user's dog is named Riley\nSee you.");
+  assert.deepEqual(r.facts, ["user's dog is named Riley"]);
+  assert.equal(r.text, "Nice to meet you.\nSee you.");
+});
+
+test("extractMemories is case-insensitive and safe when empty", () => {
+  assert.deepEqual(D.extractMemories("remember: lowercase works").facts, ["lowercase works"]);
+  assert.deepEqual(D.extractMemories("").facts, []);
+  assert.deepEqual(D.extractMemories(null).facts, []);
+});
+
+test("appendMemory de-dupes (case-insensitive), trims, and caps", () => {
+  let m = D.appendMemory("", ["likes teal", "  likes teal  ", "has a Flipper"]);
+  assert.equal(m, "likes teal\nhas a Flipper");
+  m = D.appendMemory("Likes Teal", ["likes teal"]);   // dup vs existing, different case
+  assert.equal(m, "Likes Teal");
+  let big = "";
+  for (let i = 0; i < 10; i++) big = D.appendMemory(big, ["fact" + i], 4);
+  assert.deepEqual(big.split("\n"), ["fact6", "fact7", "fact8", "fact9"]);
+});
+
+test("buildSystemPrompt injects memory and teaches REMEMBER", () => {
+  const p = D.buildSystemPrompt(D.DEVICE_PROFILES.flipper, "", "user likes teal");
+  assert.match(p, /What you remember about the user/);
+  assert.match(p, /user likes teal/);
+  assert.match(p, /REMEMBER: /);
+  // no memory section when none given
+  assert.doesNotMatch(D.buildSystemPrompt(D.DEVICE_PROFILES.flipper, ""), /What you remember about the user/);
+});
+
+/* ========================================================================
    Neural TTS (better voices)
    ======================================================================== */
 test("resolveTtsUrl joins the /audio/speech path without doubling slashes", () => {
@@ -593,7 +639,7 @@ test("provider presets have the exact spec Base URLs", () => {
 test("normalizeSettings shapes bad / partial input safely (defaults to auto-detect)", () => {
   const defaults = {
     baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
-    connection: "ble", wsUrl: "", autoSendOutput: false, streaming: true, persona: "",
+    connection: "ble", wsUrl: "", autoSendOutput: false, streaming: true, mode: "lite", persona: "",
     voice: {
       engine: "device", deviceVoice: "", style: "natural",
       ttsBaseUrl: "", ttsKey: "", ttsModel: "gpt-4o-mini-tts", ttsVoice: "nova",
