@@ -1352,6 +1352,12 @@ async function connectDevice(){
     activeTransport = "ble";
     gotAnyRx = false; bleHintShown = false;   // fresh "no reply" watch for this session
     resetRxDecoder();
+    // Stock Flipper BLE is an RPC (protobuf) transport, not a wireless CLI.
+    // Plain text looks like a malformed RPC stream, so the firmware closes the
+    // session — that's the "connects then drops" behavior. Warn up front.
+    if(activeProfile.key === "flipper"){
+      addMessage("note", "⚠️ Stock Flipper Bluetooth speaks RPC (protobuf), not the text CLI. Text commands usually get no reply and can make the firmware drop the link. For a working CLI use the USB PC bridge (bridge/dai_bridge.py) or the ESP32 UART bridge.");
+    }
     setConnected(true, device.name);
     setDevTag(activeProfile.label);
     termLine("Connected to " + device.name + " — detected " + activeProfile.label + ". Serial link is live — try `help`.", "sys");
