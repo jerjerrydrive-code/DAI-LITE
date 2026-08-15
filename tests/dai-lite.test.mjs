@@ -353,6 +353,57 @@ test("provider library: remove and find", () => {
 });
 
 /* ========================================================================
+   Neural TTS (better voices)
+   ======================================================================== */
+test("resolveTtsUrl joins the /audio/speech path without doubling slashes", () => {
+  assert.equal(D.resolveTtsUrl("https://api.openai.com/v1"), "https://api.openai.com/v1/audio/speech");
+  assert.equal(D.resolveTtsUrl("https://api.openai.com/v1/"), "https://api.openai.com/v1/audio/speech");
+});
+
+test("ttsHeaders sets Authorization only when a key is present", () => {
+  assert.equal(D.ttsHeaders({ ttsKey: "sk-x" }).Authorization, "Bearer sk-x");
+  assert.equal(D.ttsHeaders({}).Authorization, undefined);
+  assert.equal(D.ttsHeaders({})["Content-Type"], "application/json");
+});
+
+test("buildTtsBody carries model/voice/input and includes instructions when set", () => {
+  const body = D.buildTtsBody({ ttsModel: "gpt-4o-mini-tts", ttsVoice: "onyx", ttsInstructions: "  calm narrator  " }, "hello");
+  assert.equal(body.model, "gpt-4o-mini-tts");
+  assert.equal(body.voice, "onyx");
+  assert.equal(body.input, "hello");
+  assert.equal(body.response_format, "mp3");
+  assert.equal(body.instructions, "calm narrator"); // trimmed
+});
+
+test("buildTtsBody omits empty instructions and falls back to defaults", () => {
+  const body = D.buildTtsBody({}, "hi");
+  assert.equal(body.model, "gpt-4o-mini-tts");
+  assert.equal(body.voice, "nova");
+  assert.equal("instructions" in body, false);
+});
+
+test("voice personas map to a real voice id and a tone instruction", () => {
+  const voiceIds = new Set(D.TTS_VOICES.map((v) => v.id));
+  for (const key of Object.keys(D.VOICE_PERSONAS)) {
+    const p = D.VOICE_PERSONAS[key];
+    assert.ok(voiceIds.has(p.ttsVoice), key + " uses a known voice id");
+    assert.ok(p.ttsInstructions.length > 0, key + " has a tone instruction");
+  }
+});
+
+test("styleToProsody returns sane rate/pitch and a natural default", () => {
+  assert.deepEqual(D.styleToProsody("natural"), { rate: 1.0, pitch: 1.0 });
+  assert.deepEqual(D.styleToProsody("deep"), { rate: 0.9, pitch: 0.75 });
+  assert.deepEqual(D.styleToProsody("whatever"), { rate: 1.0, pitch: 1.0 });
+});
+
+test("normalizeVoice coerces engine and fills defaults", () => {
+  assert.equal(D.normalizeVoice({ engine: "neural" }).engine, "neural");
+  assert.equal(D.normalizeVoice({ engine: "bogus" }).engine, "device");
+  assert.equal(D.normalizeVoice(undefined).ttsVoice, "nova");
+});
+
+/* ========================================================================
    System prompt is device-aware and always teaches the RUN: protocol
    ======================================================================== */
 test("buildSystemPrompt always explains the RUN: protocol and confirmation", () => {
@@ -385,12 +436,13 @@ test("provider presets have the exact spec Base URLs", () => {
    Settings normalization
    ======================================================================== */
 test("normalizeSettings shapes bad / partial input safely (defaults to auto-detect)", () => {
-  assert.deepEqual(D.normalizeSettings(null), {
+  const defaults = {
     baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
-  });
-  assert.deepEqual(D.normalizeSettings("not json"), {
-    baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
-  });
+    connection: "ble", wsUrl: "",
+    voice: { engine: "device", deviceVoice: "", style: "natural", ttsBaseUrl: "", ttsKey: "", ttsModel: "", ttsVoice: "nova", ttsInstructions: "" },
+  };
+  assert.deepEqual(D.normalizeSettings(null), defaults);
+  assert.deepEqual(D.normalizeSettings("not json"), defaults);
   const s = D.normalizeSettings('{"baseUrl":"u","deviceProfile":"esp32"}');
   assert.equal(s.baseUrl, "u");
   assert.equal(s.deviceProfile, "esp32");

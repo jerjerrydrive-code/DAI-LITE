@@ -332,10 +332,22 @@ Type a command below or let the assistant propose one.
     <hr />
 
     <!-- ---- Device / transport ---- -->
-    <div class="section">Device (BLE serial)</div>
-    <p>DAI-LITE speaks a simple text CLI over a Bluetooth serial link. Flipper Zero is
-    built in; ESP32-S3 boards using the Nordic UART Service work too, and Custom lets
-    you point at your own hardware's UUIDs.</p>
+    <div class="section">Device &amp; connection</div>
+    <p>DAI-LITE speaks a simple text CLI to a device. Connect over Bluetooth, or over
+    WiFi to a WebSocket serial bridge (e.g. an ESP32 or a PC left running) so you can
+    leave it plugged in like an AIPI Lite.</p>
+
+    <label>Connection</label>
+    <select id="setConnection">
+      <option value="ble">Bluetooth (BLE)</option>
+      <option value="wifi">WiFi (WebSocket bridge)</option>
+    </select>
+
+    <div id="wifiFields" style="display:none">
+      <label>WebSocket URL</label>
+      <input id="setWsUrl" placeholder="ws://192.168.1.50:81" spellcheck="false" />
+      <div class="hint">Your bridge must expose a WebSocket that relays text to/from the device's serial port. Note: an <code>https://</code> page can only reach <code>wss://</code> — serve DAI-LITE over http/localhost to use plain <code>ws://</code>.</div>
+    </div>
 
     <label>Device type</label>
     <select id="setDevice">
@@ -368,6 +380,58 @@ Type a command below or let the assistant propose one.
         <option value="lf">LF &#92;n (most ESP32 firmware)</option>
         <option value="crlf">CRLF &#92;r&#92;n</option>
       </select>
+    </div>
+
+    <hr />
+
+    <!-- ---- Voice ---- -->
+    <div class="section">Voice</div>
+    <p>On-device voices are free but robotic. For natural, realistic voices use a
+    neural TTS provider (OpenAI-compatible <code>/audio/speech</code>) — this needs a
+    TTS-capable key. <strong>OpenRouter does not do TTS.</strong></p>
+
+    <label>Voice engine</label>
+    <select id="voiceEngine">
+      <option value="device">Device voices (free, built-in)</option>
+      <option value="neural">Neural voices (realistic, needs TTS key)</option>
+    </select>
+
+    <div id="voiceDevicePanel">
+      <label>Device voice</label>
+      <select id="setDeviceVoice"></select>
+      <label>Style</label>
+      <select id="setVoiceStyle">
+        <option value="natural">Natural</option>
+        <option value="warm">Warm</option>
+        <option value="bright">Bright</option>
+        <option value="deep">Deep</option>
+        <option value="expressive">Expressive</option>
+      </select>
+    </div>
+
+    <div id="voiceNeuralPanel" style="display:none">
+      <label>Quick personas</label>
+      <div class="presets">
+        <button type="button" class="btn" data-persona="warmWoman">Warm woman</button>
+        <button type="button" class="btn" data-persona="flirty">Flirty</button>
+        <button type="button" class="btn" data-persona="narratorMan">Narrator (man)</button>
+        <button type="button" class="btn" data-persona="brightWoman">Bright woman</button>
+      </div>
+      <label>TTS Base URL</label>
+      <input id="setTtsBase" placeholder="https://api.openai.com/v1" spellcheck="false" />
+      <label>TTS API key</label>
+      <input id="setTtsKey" type="password" placeholder="sk-… (a TTS-capable key)" spellcheck="false" />
+      <label>TTS model</label>
+      <input id="setTtsModel" placeholder="gpt-4o-mini-tts  (or tts-1, tts-1-hd)" spellcheck="false" />
+      <label>Voice</label>
+      <select id="setTtsVoice"></select>
+      <label>Tone / style (optional)</label>
+      <input id="setTtsInstructions" placeholder="e.g. warm and flirty · calm audiobook narrator" spellcheck="false" />
+    </div>
+
+    <div class="inline" style="margin-top:10px">
+      <button id="voiceTest" class="btn accent" type="button">🔊 Test voice</button>
+      <span id="voiceHint" class="hint"></span>
     </div>
 
     <div class="row">
@@ -444,6 +508,29 @@ const PRESETS = {
   ollama:     { baseUrl:"http://LAN-IP:11434/v1",              model:"llama3.1" }
 };
 
+/* ---- Neural TTS voices ----------------------------------------------------
+   OpenAI-compatible /audio/speech voice ids with friendly labels, plus one-tap
+   "personas" that pick a voice + a tone instruction. Device (Web Speech) voices
+   are free but robotic; these sound natural but need a TTS-capable key. */
+const TTS_VOICES = [
+  { id:"nova",    label:"Nova — warm woman" },
+  { id:"shimmer", label:"Shimmer — bright woman" },
+  { id:"coral",   label:"Coral — friendly woman" },
+  { id:"sage",    label:"Sage — soft woman" },
+  { id:"onyx",    label:"Onyx — deep man" },
+  { id:"echo",    label:"Echo — calm man" },
+  { id:"ballad",  label:"Ballad — smooth man" },
+  { id:"fable",   label:"Fable — expressive narrator" },
+  { id:"alloy",   label:"Alloy — neutral" },
+  { id:"verse",   label:"Verse — lively" }
+];
+const VOICE_PERSONAS = {
+  warmWoman:   { label:"Warm woman",     ttsVoice:"nova",    ttsInstructions:"Speak in a warm, friendly, natural woman's voice." },
+  flirty:      { label:"Flirty",         ttsVoice:"coral",   ttsInstructions:"Speak in a warm, playful, lightly flirtatious and upbeat tone." },
+  narratorMan: { label:"Narrator (man)", ttsVoice:"onyx",    ttsInstructions:"Speak in a deep, clear, relaxed man's reading voice, like an audiobook narrator." },
+  brightWoman: { label:"Bright woman",   ttsVoice:"shimmer", ttsInstructions:"Speak brightly and cheerfully." }
+};
+
 /* Small helpers used by both layers */
 const enc = new TextEncoder();
 
@@ -458,6 +545,21 @@ function lineEndingFromCode(code){
   return "\r"; // "cr" (default; Flipper uses CR)
 }
 
+/* Fill in a voice-settings object with defaults. */
+function normalizeVoice(v){
+  v = v || {};
+  return {
+    engine:          v.engine === "neural" ? "neural" : "device",
+    deviceVoice:     v.deviceVoice || "",
+    style:           v.style || "natural",
+    ttsBaseUrl:      v.ttsBaseUrl || "",
+    ttsKey:          v.ttsKey || "",
+    ttsModel:        v.ttsModel || "",
+    ttsVoice:        v.ttsVoice || "nova",
+    ttsInstructions: v.ttsInstructions || ""
+  };
+}
+
 /* Read raw localStorage text (or an object) into a fully-shaped settings object. */
 function normalizeSettings(raw){
   let s = {};
@@ -468,8 +570,42 @@ function normalizeSettings(raw){
     apiKey:        s.apiKey || "",
     model:         s.model || "",
     deviceProfile: s.deviceProfile || "auto",
-    custom:        s.custom || {}
+    custom:        s.custom || {},
+    connection:    s.connection === "wifi" ? "wifi" : "ble",
+    wsUrl:         s.wsUrl || "",
+    voice:         normalizeVoice(s.voice)
   };
+}
+
+/* ---- Neural TTS request building (pure) ---- */
+function resolveTtsUrl(baseUrl){
+  return String(baseUrl || "").replace(/\/+$/,"") + "/audio/speech";
+}
+function ttsHeaders(v){
+  const h = { "Content-Type":"application/json" };
+  if(v && v.ttsKey) h["Authorization"] = "Bearer " + v.ttsKey;
+  return h;
+}
+function buildTtsBody(v, text){
+  const body = {
+    model: (v && v.ttsModel) || "gpt-4o-mini-tts",
+    voice: (v && v.ttsVoice) || "nova",
+    input: String(text == null ? "" : text),
+    response_format: "mp3"
+  };
+  const instr = v && v.ttsInstructions && String(v.ttsInstructions).trim();
+  if(instr) body.instructions = instr;   // tone/style (supported by gpt-4o-mini-tts)
+  return body;
+}
+/* Map a device-voice "style" to Web Speech rate/pitch. */
+function styleToProsody(style){
+  switch(style){
+    case "warm":       return { rate:0.95, pitch:1.08 };
+    case "bright":     return { rate:1.05, pitch:1.18 };
+    case "deep":       return { rate:0.90, pitch:0.75 };
+    case "expressive": return { rate:1.00, pitch:1.12 };
+    default:           return { rate:1.00, pitch:1.00 }; // natural
+  }
 }
 
 /* Resolve the active device profile from settings (built-in or custom).
@@ -733,6 +869,7 @@ if(typeof globalThis !== "undefined"){
     candidateProfiles, buildRequestOptions, matchProfileByServices,
     appendCapture, formatDeviceOutput,
     resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider,
+    normalizeVoice, TTS_VOICES, VOICE_PERSONAS, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseAssistant, stripRunLines
   };
@@ -746,6 +883,8 @@ const rxDecoder = (typeof TextDecoder !== "undefined") ? new TextDecoder() : nul
 
 /* Shared runtime state */
 let device = null, gattServer = null, txChar = null, rxChar = null;
+let ws = null;                 // WebSocket, when connected over WiFi
+let activeTransport = null;    // 'ble' | 'ws' | null
 let activeProfile = DEVICE_PROFILES.flipper;
 let muted = false;
 const synth = (typeof window !== "undefined" && window.speechSynthesis) ? window.speechSynthesis : null;
@@ -839,6 +978,8 @@ async function connectDevice(){
     await rxChar.startNotifications();
     rxChar.addEventListener("characteristicvaluechanged", onDeviceData);
 
+    activeTransport = "ble";
+    gotAnyRx = false; bleHintShown = false;   // fresh "no reply" watch for this session
     setConnected(true, device.name);
     setDevTag(activeProfile.label);
     termLine("Connected to " + device.name + " — detected " + activeProfile.label + ". Serial link is live — try `help`.", "sys");
@@ -852,7 +993,53 @@ async function connectDevice(){
 function onDisconnected(){
   setConnected(false);
   txChar = null; rxChar = null; gattServer = null;
+  if(activeTransport === "ble") activeTransport = null;
   termLine("Device disconnected.", "err");
+}
+
+/* ---- WiFi transport (WebSocket serial bridge) ----
+   Browsers can't open raw TCP, but they can talk WebSocket. Point this at an
+   ESP32 (or a small PC bridge) that relays text between a WebSocket and the
+   device's serial port — then you can leave it connected like an AIPI Lite. */
+function connectWifi(){
+  if(typeof WebSocket === "undefined"){ termLine("WebSocket isn't available in this browser.", "err"); return; }
+  const s = getSettings();
+  const url = s.wsUrl;
+  if(!url){ termLine("Set a WebSocket URL (ws://IP:port) in ⚙️ Settings → Connection.", "err"); return; }
+  activeProfile = getActiveProfile(s);   // line ending + system prompt still follow the device type
+  try{
+    termLine("Connecting to " + url + "…", "sys");
+    ws = new WebSocket(url);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => {
+      activeTransport = "ws";
+      gotAnyRx = false; bleHintShown = true;  // the RPC hint is BLE-only
+      setConnected(true, url);
+      setDevTag(activeProfile.label);
+      termLine("WiFi serial link is live — try `help`.", "sys");
+    };
+    ws.onmessage = (e) => {
+      let text = "";
+      if(typeof e.data === "string") text = e.data;
+      else if(rxDecoder) text = rxDecoder.decode(new Uint8Array(e.data));
+      ingestText(text);
+    };
+    ws.onclose = () => {
+      if(activeTransport === "ws"){ activeTransport = null; ws = null; setConnected(false); termLine("WiFi disconnected.", "err"); }
+      else { ws = null; }
+    };
+    ws.onerror = () => {
+      termLine("WiFi error: could not reach " + url + ". Is the bridge running? (An https:// page can only use wss://.)", "err");
+    };
+  }catch(err){
+    termLine("WiFi error: " + (err && err.message ? err.message : err), "err");
+    setConnected(false);
+  }
+}
+
+function disconnectActive(){
+  if(activeTransport === "ws"){ if(ws){ try{ ws.close(); }catch(_){} } }
+  else if(gattServer){ try{ device.gatt.disconnect(); }catch(_){} }
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -872,6 +1059,21 @@ function queueWrite(task){
    Writes are serialized, use write-WITH-response, and are paced so we don't
    overrun the device's small BLE buffer (which made the Flipper disconnect). */
 function sendCommand(command){
+  // WiFi path: one text frame per command (the bridge handles the serial side).
+  if(activeTransport === "ws"){
+    if(!ws || ws.readyState !== 1){ termLine("Not connected — connect first.", "err"); return Promise.resolve(false); }
+    const p = activeProfile || DEVICE_PROFILES.flipper;
+    try{
+      ws.send(command + p.lineEnding);
+      termLine("> " + command, "cmd");
+      lastCommand = command; captureBuffer = "";
+      return Promise.resolve(true);
+    }catch(err){
+      termLine("Send failed: " + (err && err.message ? err.message : err), "err");
+      return Promise.resolve(false);
+    }
+  }
+  // Bluetooth path.
   if(!txChar){ termLine("Not connected — connect a device first.", "err"); return Promise.resolve(false); }
   return queueWrite(async () => {
     if(!txChar){ termLine("Not connected — connect a device first.", "err"); return false; }
@@ -910,14 +1112,17 @@ function scheduleNoResponseHint(){
   }, 2600);
 }
 
-/* Notification handler: decode incoming bytes as UTF-8, stream into terminal and
-   into the rolling capture buffer (so the latest output can be sent to the AI). */
-function onDeviceData(event){
-  gotAnyRx = true;
-  const text = rxDecoder ? rxDecoder.decode(event.target.value, { stream:true }) : "";
+// Shared handler for incoming device text (from BLE notifications or WS frames).
+function ingestText(text){
   if(!text) return;
+  gotAnyRx = true;
   termAppend(text, "rx");
   captureBuffer = appendCapture(captureBuffer, text);
+}
+
+/* BLE notification handler: decode incoming bytes as UTF-8, then ingest. */
+function onDeviceData(event){
+  ingestText(rxDecoder ? rxDecoder.decode(event.target.value, { stream:true }) : "");
 }
 
 /* ---- Chat rendering ---- */
@@ -1030,11 +1235,63 @@ async function runAiTurn(){
 }
 
 /* ---- Voice ---- */
-function speak(text){
-  if(muted || !synth || !text) return;
+let currentAudio = null;   // the neural TTS <audio> currently playing
+let neuralWarned = false;  // only nag once if neural TTS fails
+
+function stopSpeaking(){
+  if(synth) synth.cancel();
+  if(currentAudio){ try{ currentAudio.pause(); }catch(_){} currentAudio = null; }
+}
+
+// Speak with the saved voice settings.
+function speak(text){ speakWith(text, getSettings().voice); }
+
+// Speak with an explicit voice-settings object (used by the Test button too).
+async function speakWith(text, v){
+  if(muted || !text) return;
+  v = v || {};
+  if(v.engine === "neural" && v.ttsBaseUrl && v.ttsKey){
+    const ok = await speakNeural(text, v);
+    if(ok) return;                 // else fall through to the free device voice
+  }
+  speakDevice(text, v);
+}
+
+// Realistic neural voice via OpenAI-compatible /audio/speech -> play the mp3.
+async function speakNeural(text, v){
+  try{
+    stopSpeaking();
+    const res = await fetch(resolveTtsUrl(v.ttsBaseUrl), {
+      method: "POST", headers: ttsHeaders(v), body: JSON.stringify(buildTtsBody(v, text))
+    });
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const url = URL.createObjectURL(new Blob([await res.arrayBuffer()], { type:"audio/mpeg" }));
+    currentAudio = new Audio(url);
+    currentAudio.onended = () => URL.revokeObjectURL(url);
+    await currentAudio.play();
+    return true;
+  }catch(err){
+    if(!neuralWarned){
+      neuralWarned = true;
+      addMessage("note", "Neural voice failed (" + (err && err.message ? err.message : err) +
+        ") — using the device voice. Check the TTS Base URL, key, and CORS in ⚙️ Settings.");
+    }
+    return false;
+  }
+}
+
+// Free on-device voice via the Web Speech API.
+function speakDevice(text, v){
+  if(!synth) return;
   synth.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.rate = 1.02;
+  const pr = styleToProsody(v && v.style);
+  u.rate = pr.rate; u.pitch = pr.pitch;
+  const want = v && v.deviceVoice;
+  if(want){
+    const match = (synth.getVoices() || []).find(x => x.voiceURI === want || x.name === want);
+    if(match) u.voice = match;
+  }
   synth.speak(u);
 }
 function setupRecognition(){
@@ -1161,6 +1418,20 @@ function openSettings(){
   $("setTx").value      = c.txChar || "";
   $("setRx").value      = c.rxChar || "";
   $("setLineEnd").value = c.lineEnding || "cr";
+  $("setConnection").value = s.connection;
+  $("setWsUrl").value = s.wsUrl;
+  // Voice fields
+  const v = s.voice;
+  $("voiceEngine").value = v.engine;
+  $("setVoiceStyle").value = v.style;
+  $("setTtsBase").value = v.ttsBaseUrl;
+  $("setTtsKey").value = v.ttsKey;
+  $("setTtsModel").value = v.ttsModel;
+  $("setTtsInstructions").value = v.ttsInstructions;
+  populateDeviceVoices(v.deviceVoice);
+  populateTtsVoices(v.ttsVoice);
+  toggleVoicePanels();
+  toggleWifiFields();
   $("setApiKey").type = "password";                 // always re-mask on open
   $("keyReveal").classList.remove("on");
   populateProviderSelect();
@@ -1179,12 +1450,76 @@ function saveSettings(){
       txChar:     $("setTx").value.trim(),
       rxChar:     $("setRx").value.trim(),
       lineEnding: $("setLineEnd").value
-    }
+    },
+    connection: $("setConnection").value,
+    wsUrl:      $("setWsUrl").value.trim(),
+    voice: voiceFromForm()
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   $("settingsOverlay").classList.remove("show");
   activeProfile = getActiveProfile(getSettings()); // keep system-prompt device in sync
   updateDeviceLabel();
+}
+
+/* ---- Voice settings UI ---- */
+function voiceFromForm(){
+  return normalizeVoice({
+    engine:          $("voiceEngine").value,
+    deviceVoice:     $("setDeviceVoice").value,
+    style:           $("setVoiceStyle").value,
+    ttsBaseUrl:      $("setTtsBase").value.trim(),
+    ttsKey:          $("setTtsKey").value.trim(),
+    ttsModel:        $("setTtsModel").value.trim(),
+    ttsVoice:        $("setTtsVoice").value,
+    ttsInstructions: $("setTtsInstructions").value.trim()
+  });
+}
+function toggleVoicePanels(){
+  const neural = $("voiceEngine").value === "neural";
+  $("voiceNeuralPanel").style.display = neural ? "block" : "none";
+  $("voiceDevicePanel").style.display = neural ? "none" : "block";
+}
+function toggleWifiFields(){
+  $("wifiFields").style.display = ($("setConnection").value === "wifi") ? "block" : "none";
+}
+// Fill the device-voice dropdown from the OS voices the browser exposes.
+function populateDeviceVoices(selected){
+  const sel = $("setDeviceVoice"); if(!sel) return;
+  const voices = synth ? (synth.getVoices() || []) : [];
+  sel.innerHTML = "";
+  const def = document.createElement("option"); def.value = ""; def.textContent = "Default voice"; sel.appendChild(def);
+  voices.forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.voiceURI || v.name;
+    o.textContent = v.name + " (" + v.lang + ")" + (v.default ? " ★" : "");
+    if(o.value === selected) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+// Fill the neural voice dropdown from our persona-labeled list.
+function populateTtsVoices(selected){
+  const sel = $("setTtsVoice"); if(!sel) return;
+  sel.innerHTML = "";
+  TTS_VOICES.forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.id; o.textContent = v.label;
+    if(v.id === selected) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+function applyPersona(key){
+  const p = VOICE_PERSONAS[key]; if(!p) return;
+  $("voiceEngine").value = "neural";
+  toggleVoicePanels();
+  if(!$("setTtsBase").value.trim()) $("setTtsBase").value = "https://api.openai.com/v1";
+  populateTtsVoices(p.ttsVoice);
+  $("setTtsInstructions").value = p.ttsInstructions;
+  $("voiceHint").textContent = "Persona: " + p.label + " — add a TTS key, then Test.";
+}
+function testVoice(){
+  neuralWarned = false; // let a failure re-notify during testing
+  $("voiceHint").textContent = "Speaking sample…";
+  speakWith("Hi, this is your DAI-LITE voice. Ready when you are.", voiceFromForm());
 }
 
 /* ---- Safety notice ---- */
@@ -1200,8 +1535,11 @@ function setConnected(connected, name){
   $("connectBtn").textContent = connected ? "Disconnect" : "Connect";
 }
 function toggleConnect(){
-  if(gattServer && gattServer.connected) device.gatt.disconnect();
-  else connectDevice();
+  const connected = (activeTransport === "ws" && ws && ws.readyState === 1) ||
+                    (activeTransport === "ble" && gattServer && gattServer.connected);
+  if(connected){ disconnectActive(); return; }
+  const conn = getSettings().connection || "ble";
+  if(conn === "wifi") connectWifi(); else connectDevice();
 }
 
 /* ---- Input helpers ---- */
@@ -1214,7 +1552,7 @@ function wire(){
   $("settingsBtn").addEventListener("click", openSettings);
   $("muteBtn").addEventListener("click", () => {
     muted = !muted;
-    if(muted && synth) synth.cancel();
+    if(muted) stopSpeaking();
     $("muteBtn").textContent = muted ? "🔇" : "🔊";
     $("muteBtn").classList.toggle("on", muted);
   });
@@ -1240,6 +1578,14 @@ function wire(){
   $("providerSave").addEventListener("click", saveCurrentProvider);
   $("providerLoad").addEventListener("click", loadSelectedProvider);
   $("providerDelete").addEventListener("click", deleteSelectedProvider);
+  $("setConnection").addEventListener("change", toggleWifiFields);
+  $("voiceEngine").addEventListener("change", toggleVoicePanels);
+  $("voiceTest").addEventListener("click", testVoice);
+  document.querySelectorAll("[data-persona]").forEach(btn => {
+    btn.addEventListener("click", () => applyPersona(btn.dataset.persona));
+  });
+  // OS voices load asynchronously; refresh the picker when they arrive.
+  if(synth) synth.addEventListener("voiceschanged", () => populateDeviceVoices(getSettings().voice.deviceVoice));
   document.querySelectorAll("[data-preset]").forEach(btn => {
     btn.addEventListener("click", () => {
       const p = PRESETS[btn.dataset.preset];
@@ -1260,11 +1606,10 @@ function wire(){
 
 /* Detect unsupported browsers and degrade gracefully with plain messages. */
 function featureCheck(){
+  // Web Bluetooth may be missing, but WiFi (WebSocket) still works — so we note
+  // it rather than disabling Connect outright.
   if(typeof navigator === "undefined" || !navigator.bluetooth){
-    $("connectBtn").disabled = true;
-    $("connectBtn").textContent = "No Bluetooth";
-    $("connectBtn").title = "Web Bluetooth is unavailable. Use Chrome or Edge on Android or desktop.";
-    termLine("Web Bluetooth isn't supported here. Open DAI-LITE in Chrome or Edge (Android/desktop) to connect a device.", "err");
+    termLine("Web Bluetooth isn't supported here. Use Chrome or Edge (Android/desktop) for BLE, or switch Connection to WiFi in ⚙️ Settings.", "err");
   }
   if(SR){ setupRecognition(); }
   else{
