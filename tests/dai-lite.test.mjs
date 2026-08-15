@@ -302,6 +302,62 @@ test("buildRequestBody falls back to a default model", () => {
   assert.equal(body.messages.length, 1); // just the system message
 });
 
+/* ---- Streaming (SSE) ---- */
+test("buildRequestBody sets stream only when asked", () => {
+  assert.equal(D.buildRequestBody("s", [], {}).stream, false);
+  assert.equal(D.buildRequestBody("s", [], {}, true).stream, true);
+});
+
+test("parseSseEvents returns complete events and keeps the partial tail", () => {
+  const r = D.parseSseEvents('data: {"a":1}\n\ndata: {"b":2}\n\ndata: {"c"');
+  assert.deepEqual(r.events, ['{"a":1}', '{"b":2}']);
+  assert.equal(r.rest, 'data: {"c"');   // incomplete — carried to the next read
+});
+
+test("parseSseEvents handles CRLF and the [DONE] sentinel", () => {
+  const r = D.parseSseEvents('data: {"a":1}\r\n\r\ndata: [DONE]\r\n\r\n');
+  assert.deepEqual(r.events, ['{"a":1}', "[DONE]"]);
+  assert.equal(r.rest, "");
+});
+
+test("parseSseEvents ignores comments/keep-alives and is safe on junk", () => {
+  const r = D.parseSseEvents(": keep-alive\n\ndata: {\"a\":1}\n\n");
+  assert.deepEqual(r.events, ['{"a":1}']);
+  assert.deepEqual(D.parseSseEvents("").events, []);
+  assert.deepEqual(D.parseSseEvents(null).events, []);
+});
+
+test("extractDelta pulls streamed text and is safe on malformed chunks", () => {
+  assert.equal(D.extractDelta({ choices: [{ delta: { content: "Hel" } }] }), "Hel");
+  assert.equal(D.extractDelta({ choices: [{ delta: {} }] }), "");   // role-only first chunk
+  assert.equal(D.extractDelta({ choices: [] }), "");
+  assert.equal(D.extractDelta(null), "");
+});
+
+test("a full streamed reply reassembles into the same text", () => {
+  // Simulate chunks split at awkward byte boundaries.
+  const wire = 'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n' +
+               'data: {"choices":[{"delta":{"content":"Checking.\\n"}}]}\n\n' +
+               'data: {"choices":[{"delta":{"content":"RUN: power info"}}]}\n\n' +
+               "data: [DONE]\n\n";
+  let buf = "", full = "";
+  for (const piece of [wire.slice(0, 40), wire.slice(40, 130), wire.slice(130)]) {
+    buf += piece;
+    const p = D.parseSseEvents(buf);
+    buf = p.rest;
+    for (const ev of p.events) {
+      if (ev === "[DONE]") continue;
+      full += D.extractDelta(JSON.parse(ev));
+    }
+  }
+  assert.equal(full, "Checking.\nRUN: power info");
+  // and it still parses into prose + a confirmable command
+  assert.deepEqual(D.parseAssistant(full), [
+    { type: "text", text: "Checking." },
+    { type: "run", command: "power info" },
+  ]);
+});
+
 test("extractReply pulls content and is safe on malformed responses", () => {
   assert.equal(D.extractReply({ choices: [{ message: { content: "hello" } }] }), "hello");
   assert.equal(D.extractReply({}), "");
@@ -487,7 +543,7 @@ test("provider presets have the exact spec Base URLs", () => {
 test("normalizeSettings shapes bad / partial input safely (defaults to auto-detect)", () => {
   const defaults = {
     baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
-    connection: "ble", wsUrl: "", autoSendOutput: false,
+    connection: "ble", wsUrl: "", autoSendOutput: false, streaming: true,
     voice: {
       engine: "device", deviceVoice: "", style: "natural",
       ttsBaseUrl: "", ttsKey: "", ttsModel: "gpt-4o-mini-tts", ttsVoice: "nova",

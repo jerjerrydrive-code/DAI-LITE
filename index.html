@@ -323,6 +323,11 @@ Type a command below or let the assistant propose one.
     <div id="modelHint" class="hint">Tip: click “Load models”, then click the box to pick from the list.</div>
 
     <label class="check">
+      <input type="checkbox" id="setStreaming" />
+      <span>Stream replies as they’re generated (faster; turn off if your provider doesn’t support it).</span>
+    </label>
+
+    <label class="check">
       <input type="checkbox" id="setAutoSend" />
       <span>Auto-send device output back to the assistant after each Run (hands-free loop). Off = tap “→ AI” yourself.</span>
     </label>
@@ -589,6 +594,7 @@ function normalizeSettings(raw){
     connection:    s.connection === "wifi" ? "wifi" : "ble",
     wsUrl:         s.wsUrl || "",
     autoSendOutput: !!s.autoSendOutput,
+    streaming:     s.streaming !== false,   // on by default; replies appear as they generate
     voice:         normalizeVoice(s.voice)
   };
 }
@@ -717,7 +723,7 @@ set, start with "help" (or ask the user) and adapt to what it prints back.`;
 }
 
 /* Build the JSON request body for the chat/completions call. */
-function buildRequestBody(systemPrompt, conversation, settings){
+function buildRequestBody(systemPrompt, conversation, settings, stream){
   return {
     model: (settings && settings.model) || "gpt-4o-mini",
     messages: [{ role:"system", content:systemPrompt }, ...(conversation || [])],
@@ -726,7 +732,7 @@ function buildRequestBody(systemPrompt, conversation, settings){
     // providers like OpenRouter, avoids a 402 where the model's huge default
     // token reservation exceeds a small credit balance.
     max_tokens: 800,
-    stream: false
+    stream: !!stream
   };
 }
 
@@ -750,6 +756,31 @@ function resolveChatUrl(baseUrl){
 function extractReply(data){
   return (data && data.choices && data.choices[0] && data.choices[0].message &&
           data.choices[0].message.content) || "";
+}
+
+/* ---- Streaming (Server-Sent Events) ----
+   With stream:true the provider sends "data: {json}" blocks separated by blank
+   lines. Chunks arrive split at arbitrary byte boundaries, so we buffer and only
+   consume complete events, returning the leftover for the next read. */
+function parseSseEvents(buffer){
+  const norm = String(buffer == null ? "" : buffer).replace(/\r\n/g, "\n");
+  const events = [];
+  let rest = norm, idx;
+  while((idx = rest.indexOf("\n\n")) !== -1){
+    const block = rest.slice(0, idx);
+    rest = rest.slice(idx + 2);
+    for(const line of block.split("\n")){
+      const t = line.trim();
+      if(t.startsWith("data:")) events.push(t.slice(5).trim());
+    }
+  }
+  return { events, rest };
+}
+
+/* Pull the incremental text out of one streamed chunk. */
+function extractDelta(data){
+  return (data && data.choices && data.choices[0] && data.choices[0].delta &&
+          data.choices[0].delta.content) || "";
 }
 
 /* Parse an assistant reply into ordered segments of prose and RUN: commands.
@@ -909,7 +940,7 @@ if(typeof globalThis !== "undefined"){
     navigateHistory, pushHistory,
     normalizeVoice, TTS_VOICES, VOICE_PERSONAS, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, extractReply, parseAssistant, stripRunLines
+    resolveChatUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines
   };
 }
 
@@ -1290,6 +1321,7 @@ async function runAiTurn(){
 
   aiBusy = true;
   const thinking = addMessage("note", "…thinking");
+  const wantStream = s.streaming;
   try{
     // Use the profile we actually detected on connect (falls back to the
     // settings default when not yet connected).
@@ -1298,7 +1330,7 @@ async function runAiTurn(){
     const res = await fetch(resolveChatUrl(s.baseUrl), {
       method: "POST",
       headers: buildHeaders(s, origin),
-      body: JSON.stringify(buildRequestBody(systemPrompt, conversation, s))
+      body: JSON.stringify(buildRequestBody(systemPrompt, conversation, s, wantStream))
     });
     if(thinking) thinking.remove();
 
@@ -1307,11 +1339,30 @@ async function runAiTurn(){
       addMessage("error", "AI error " + res.status + ": " + detail.slice(0,300));
       return;
     }
-    const reply = extractReply(await res.json());
-    if(!reply){ addMessage("error", "The AI returned an empty response."); return; }
 
+    let reply = "";
+    let rendered = false;                        // did the streaming bubble already draw it?
+    if(wantStream && res.body && res.body.getReader){
+      reply = await consumeStream(res);
+      if(reply){
+        rendered = true;
+      }else{
+        // Some providers ignore stream:true and just send one JSON body. If we
+        // got nothing useful from the stream, fall back to a normal request.
+        const again = await fetch(resolveChatUrl(s.baseUrl), {
+          method: "POST",
+          headers: buildHeaders(s, origin),
+          body: JSON.stringify(buildRequestBody(systemPrompt, conversation, s, false))
+        });
+        if(again.ok) reply = extractReply(await again.json());
+      }
+    }else{
+      reply = extractReply(await res.json());
+    }
+
+    if(!reply){ addMessage("error", "The AI returned an empty response."); return; }
     conversation.push({ role:"assistant", content:reply });
-    addMessage("assistant", reply);
+    if(!rendered) addMessage("assistant", reply);
     speak(stripRunLines(reply));                 // read the prose aloud (not raw commands)
   }catch(err){
     if(thinking) thinking.remove();
@@ -1320,6 +1371,65 @@ async function runAiTurn(){
   }finally{
     aiBusy = false;   // always release, even on early return / error
   }
+}
+
+// Read an SSE stream, painting text into a live bubble as it arrives.
+// Returns the complete reply (or "" if the stream carried nothing).
+async function consumeStream(res){
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  const bubble = startAssistantBubble();
+  let buf = "", full = "";
+  try{
+    while(true){
+      const { done, value } = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, { stream:true });
+      const parsed = parseSseEvents(buf);
+      buf = parsed.rest;
+      for(const ev of parsed.events){
+        if(!ev || ev === "[DONE]") continue;
+        try{
+          const delta = extractDelta(JSON.parse(ev));
+          if(delta){ full += delta; bubble.update(full); }
+        }catch(_){ /* keep-alive or partial JSON — skip */ }
+      }
+    }
+  }catch(_){ /* connection dropped mid-stream; keep what we have */ }
+  bubble.finish(full);       // re-render with Run buttons, or drop the bubble
+  return full;
+}
+
+// A chat bubble that can be updated as tokens arrive, then finalized.
+function startAssistantBubble(){
+  const chat = $("chat");
+  const div = document.createElement("div");
+  div.className = "msg ai";
+  div.appendChild(roleTag("DAI-LITE"));
+  const body = document.createElement("div");
+  div.appendChild(body);
+  if(chat){ chat.appendChild(div); chat.scrollTop = chat.scrollHeight; }
+  return {
+    update(text){
+      body.textContent = text;
+      if(chat) chat.scrollTop = chat.scrollHeight;
+    },
+    finish(text){
+      if(!text){ div.remove(); return; }   // nothing streamed — let the caller retry
+      // Re-render through the tested parser so RUN: lines become Run buttons.
+      body.remove();
+      for(const seg of parseAssistant(text)){
+        if(seg.type === "text"){
+          const p = document.createElement("div");
+          p.textContent = seg.text;
+          div.appendChild(p);
+        }else{
+          div.appendChild(makeRunRow(seg.command));
+        }
+      }
+      if(chat) chat.scrollTop = chat.scrollHeight;
+    }
+  };
 }
 
 /* ---- Voice ---- */
@@ -1514,6 +1624,7 @@ function openSettings(){
   $("setConnection").value = s.connection;
   $("setWsUrl").value = s.wsUrl;
   $("setAutoSend").checked = s.autoSendOutput;
+  $("setStreaming").checked = s.streaming;
   // Voice fields
   const v = s.voice;
   $("voiceEngine").value = v.engine;
@@ -1548,6 +1659,7 @@ function saveSettings(){
     connection: $("setConnection").value,
     wsUrl:      $("setWsUrl").value.trim(),
     autoSendOutput: $("setAutoSend").checked,
+    streaming: $("setStreaming").checked,
     voice: voiceFromForm()
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
