@@ -769,10 +769,14 @@ function parseSseEvents(buffer){
   while((idx = rest.indexOf("\n\n")) !== -1){
     const block = rest.slice(0, idx);
     rest = rest.slice(idx + 2);
+    // Per the SSE spec a single event may span several "data:" lines, which are
+    // joined with newlines — some gateways wrap JSON that way.
+    const dataLines = [];
     for(const line of block.split("\n")){
       const t = line.trim();
-      if(t.startsWith("data:")) events.push(t.slice(5).trim());
+      if(t.startsWith("data:")) dataLines.push(t.slice(5).trim());
     }
+    if(dataLines.length) events.push(dataLines.join("\n"));
   }
   return { events, rest };
 }
@@ -1291,7 +1295,8 @@ function makeRunRow(command){
 }
 
 /* ---- AI request ---- */
-let aiBusy = false;   // one AI turn at a time, so messages can't interleave
+let aiBusy = false;       // one AI turn at a time, so messages can't interleave
+let streamBroken = false; // provider gave unusable SSE — stop trying this session
 
 // The user typed/spoke a question: show it as a bubble, then get a reply.
 async function askAI(userText){
@@ -1321,15 +1326,17 @@ async function runAiTurn(){
 
   aiBusy = true;
   const thinking = addMessage("note", "…thinking");
-  const wantStream = s.streaming;
+  const wantStream = s.streaming && !streamBroken;
   try{
     // Use the profile we actually detected on connect (falls back to the
     // settings default when not yet connected).
     const systemPrompt = buildSystemPrompt(activeProfile || getActiveProfile(s));
     const origin = (typeof location !== "undefined") ? location.origin : "";
+    const headers = buildHeaders(s, origin);
+    if(wantStream) headers["Accept"] = "text/event-stream";
     const res = await fetch(resolveChatUrl(s.baseUrl), {
       method: "POST",
-      headers: buildHeaders(s, origin),
+      headers,
       body: JSON.stringify(buildRequestBody(systemPrompt, conversation, s, wantStream))
     });
     if(thinking) thinking.remove();
@@ -1347,14 +1354,23 @@ async function runAiTurn(){
       if(reply){
         rendered = true;
       }else{
-        // Some providers ignore stream:true and just send one JSON body. If we
-        // got nothing useful from the stream, fall back to a normal request.
+        // Some providers ignore stream:true or use a different chunk shape.
+        // Stop streaming for the rest of the session so we don't pay for every
+        // turn twice, tell the user, and retry this one normally.
+        streamBroken = true;
+        addMessage("note", "Streaming returned nothing usable — using normal requests for the rest of this session.");
         const again = await fetch(resolveChatUrl(s.baseUrl), {
           method: "POST",
           headers: buildHeaders(s, origin),
           body: JSON.stringify(buildRequestBody(systemPrompt, conversation, s, false))
         });
-        if(again.ok) reply = extractReply(await again.json());
+        if(again.ok){
+          reply = extractReply(await again.json());
+        }else{
+          const detail = await again.text().catch(()=> "");
+          addMessage("error", "AI error " + again.status + ": " + detail.slice(0,300));
+          return;
+        }
       }
     }else{
       reply = extractReply(await res.json());
@@ -1380,24 +1396,32 @@ async function consumeStream(res){
   const dec = new TextDecoder();
   const bubble = startAssistantBubble();
   let buf = "", full = "";
+  const pump = (text) => {
+    buf += text;
+    const parsed = parseSseEvents(buf);
+    buf = parsed.rest;
+    for(const ev of parsed.events){
+      if(!ev || ev === "[DONE]") continue;
+      try{
+        const delta = extractDelta(JSON.parse(ev));
+        if(delta){ full += delta; bubble.update(full); }
+      }catch(_){ /* keep-alive or partial JSON — skip */ }
+    }
+  };
   try{
     while(true){
       const { done, value } = await reader.read();
       if(done) break;
-      buf += dec.decode(value, { stream:true });
-      const parsed = parseSseEvents(buf);
-      buf = parsed.rest;
-      for(const ev of parsed.events){
-        if(!ev || ev === "[DONE]") continue;
-        try{
-          const delta = extractDelta(JSON.parse(ev));
-          if(delta){ full += delta; bubble.update(full); }
-        }catch(_){ /* keep-alive or partial JSON — skip */ }
-      }
+      pump(dec.decode(value, { stream:true }));
     }
   }catch(_){ /* connection dropped mid-stream; keep what we have */ }
-  bubble.finish(full);       // re-render with Run buttons, or drop the bubble
-  return full;
+  // Flush: the decoder may hold bytes, and a final event (often the one with the
+  // RUN: line) may not be terminated by a blank line.
+  try{ pump(dec.decode()); }catch(_){}
+  if(buf.trim()) pump("\n\n");
+  const out = full.trim() ? full : "";   // whitespace-only = nothing usable
+  bubble.finish(out);                    // re-render with Run buttons, or drop the bubble
+  return out;
 }
 
 // A chat bubble that can be updated as tokens arrive, then finalized.
@@ -1415,7 +1439,7 @@ function startAssistantBubble(){
       if(chat) chat.scrollTop = chat.scrollHeight;
     },
     finish(text){
-      if(!text){ div.remove(); return; }   // nothing streamed — let the caller retry
+      if(!text || !text.trim()){ div.remove(); return; }   // nothing usable — let the caller retry
       // Re-render through the tested parser so RUN: lines become Run buttons.
       body.remove();
       for(const seg of parseAssistant(text)){

@@ -327,6 +327,12 @@ test("parseSseEvents ignores comments/keep-alives and is safe on junk", () => {
   assert.deepEqual(D.parseSseEvents(null).events, []);
 });
 
+test("parseSseEvents joins multi-line data blocks per the SSE spec", () => {
+  const r = D.parseSseEvents('data: {"choices":[{"delta":\ndata: {"content":"hi"}}]}\n\n');
+  assert.equal(r.events.length, 1);
+  assert.equal(r.events[0], '{"choices":[{"delta":\n{"content":"hi"}}]}');
+});
+
 test("extractDelta pulls streamed text and is safe on malformed chunks", () => {
   assert.equal(D.extractDelta({ choices: [{ delta: { content: "Hel" } }] }), "Hel");
   assert.equal(D.extractDelta({ choices: [{ delta: {} }] }), "");   // role-only first chunk
