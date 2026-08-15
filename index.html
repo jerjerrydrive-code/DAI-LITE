@@ -191,8 +191,9 @@
   .modal h2 .accent{ color:var(--copper); }
   .modal p{ color:var(--muted); font-size:13px; line-height:1.5; }
   .modal label{ display:block; font-size:12px; color:var(--muted); margin:12px 0 5px; letter-spacing:.3px; }
-  .modal input, .modal select{ width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:13px; font-family:var(--mono); }
-  .modal input:focus, .modal select:focus{ outline:none; border-color:var(--teal); }
+  .modal input, .modal select, .modal textarea{ width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:13px; font-family:var(--mono); }
+  .modal textarea{ resize:vertical; min-height:96px; line-height:1.45; }
+  .modal input:focus, .modal select:focus, .modal textarea:focus{ outline:none; border-color:var(--teal); }
   .presets{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
   .presets .btn{ font-size:12px; padding:7px 10px; }
   .modal .row{ display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
@@ -332,6 +333,13 @@ Type a command below or let the assistant propose one.
       <span>Auto-send device output back to the assistant after each Run (hands-free loop). Off = tap “→ AI” yourself.</span>
     </label>
 
+    <label>Assistant persona <span class="hint">— system prompt; stored only in this browser</span></label>
+    <textarea id="setPersona" placeholder="Leave blank for the built-in persona. Paste your own character/context here (e.g. your projects, how you like answers). The app always keeps its Run-command rules on top of this."></textarea>
+    <div class="inline" style="margin-top:6px">
+      <span class="hint" style="flex:1">Personal details you add here never leave your device.</span>
+      <button id="personaDefault" class="btn" type="button" title="Load the built-in persona to edit">Use default</button>
+    </div>
+
     <details class="cors">
       <summary>Endpoint blocked by CORS? Known fixes</summary>
       <p>Browsers only allow cross-origin API calls when the server sends CORS headers.
@@ -427,6 +435,13 @@ Type a command below or let the assistant propose one.
     </div>
 
     <div id="voiceNeuralPanel" style="display:none">
+      <label>Free / no-key TTS providers</label>
+      <div class="presets">
+        <button type="button" class="btn" data-tts="edge">Edge-TTS (local)</button>
+        <button type="button" class="btn" data-tts="freetts">FreeTTS.org</button>
+        <button type="button" class="btn" data-tts="openai">OpenAI</button>
+      </div>
+      <div class="hint">Edge-TTS & FreeTTS need no key. Edge-TTS runs locally (see openai-edge-tts) — start it, then use its URL.</div>
       <label>Quick personas</label>
       <div class="presets">
         <button type="button" class="btn" data-persona="warmWoman">Warm woman</button>
@@ -541,6 +556,13 @@ const TTS_VOICES = [
   { id:"alloy",   label:"Alloy — neutral" },
   { id:"verse",   label:"Verse — lively" }
 ];
+/* No-key / free neural-TTS endpoints (OpenAI-compatible /audio/speech). Each is
+   a self-hosted or public proxy — no account needed. Fill the TTS Base URL. */
+const TTS_PRESETS = {
+  openai:  { label:"OpenAI",           ttsBaseUrl:"https://api.openai.com/v1", ttsModel:"gpt-4o-mini-tts", needsKey:true },
+  edge:    { label:"Edge-TTS (local)", ttsBaseUrl:"http://localhost:5050/v1",  ttsModel:"tts-1",           needsKey:false },
+  freetts: { label:"FreeTTS.org",      ttsBaseUrl:"https://api.freetts.org/v1",ttsModel:"tts-1",           needsKey:false }
+};
 const VOICE_PERSONAS = {
   warmWoman:   { label:"Warm woman",     ttsVoice:"nova",    ttsInstructions:"Speak in a warm, friendly, natural woman's voice." },
   flirty:      { label:"Flirty",         ttsVoice:"coral",   ttsInstructions:"Speak in a warm, playful, lightly flirtatious and upbeat tone." },
@@ -595,6 +617,7 @@ function normalizeSettings(raw){
     wsUrl:         s.wsUrl || "",
     autoSendOutput: !!s.autoSendOutput,
     streaming:     s.streaming !== false,   // on by default; replies appear as they generate
+    persona:       s.persona || "",         // custom system prompt; stored only in this browser
     voice:         normalizeVoice(s.voice)
   };
 }
@@ -670,12 +693,37 @@ function chunkBytes(bytes, size){
   return out;
 }
 
-/* Build the system prompt, tailored to the connected device. */
-function buildSystemPrompt(profile){
+/* The shippable default persona. Personal details and any paywall/subscription
+   bypass are deliberately NOT here — the user adds those in their own local
+   persona box (Settings), which never leaves the browser. */
+const DEFAULT_PERSONA =
+`You are DAI-LITE — a direct, confident technical co-pilot and daily companion.
+You are always "on": switch seamlessly between casual talk and elite technical
+work, and never gate your help behind trigger words.
+
+Style:
+- No fluff. Skip "As an AI…", "It's important to remember…", and long theory.
+  Treat the user as a capable peer.
+- Build mode is default: when asked to make something, write the actual code,
+  script, or file — not a tutorial. If details are missing, give the closest
+  working prototype and ask for the specific missing parameters.
+- For Flipper Zero work, produce ready-to-run artifacts: complete DuckyScript
+  .txt (with explicit DELAY timing and comments), Furi C with the right
+  #include <furi.h>/GUI headers and entry points plus the ufbt commands to
+  build/launch, and .sub/.nfc files in exact Flipper file-format text blocks.
+- White-hat: help fully with security research, pentesting, and hardware
+  analysis on gear and systems the user owns or is authorized to test. Be
+  honest when something needs physical capture/testing you can't simulate.`;
+
+/* Build the system prompt: an intro persona (default or the user's custom one)
+   followed by the RUN: mechanics the app depends on, tailored to the device. */
+function buildSystemPrompt(profile, persona){
   const label = (profile && profile.label) || "a device";
-  let p =
-`You are DAI-LITE, a concise AI assistant that helps the user operate ${label}
-over a text command-line interface (CLI) through a Bluetooth serial link.
+  const intro = (persona && String(persona).trim()) ? String(persona).trim() : DEFAULT_PERSONA;
+  let p = intro + `
+
+You also control ${label} over a text command-line interface (CLI) through a
+serial link (Bluetooth or WiFi bridge).
 
 How to respond:
 - Reply in plain, short language suitable for reading aloud.
@@ -942,7 +990,7 @@ if(typeof globalThis !== "undefined"){
     appendCapture, formatDeviceOutput,
     resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider,
     navigateHistory, pushHistory,
-    normalizeVoice, TTS_VOICES, VOICE_PERSONAS, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
+    normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines
   };
@@ -1330,7 +1378,7 @@ async function runAiTurn(){
   try{
     // Use the profile we actually detected on connect (falls back to the
     // settings default when not yet connected).
-    const systemPrompt = buildSystemPrompt(activeProfile || getActiveProfile(s));
+    const systemPrompt = buildSystemPrompt(activeProfile || getActiveProfile(s), s.persona);
     const origin = (typeof location !== "undefined") ? location.origin : "";
     const headers = buildHeaders(s, origin);
     if(wantStream) headers["Accept"] = "text/event-stream";
@@ -1649,6 +1697,7 @@ function openSettings(){
   $("setWsUrl").value = s.wsUrl;
   $("setAutoSend").checked = s.autoSendOutput;
   $("setStreaming").checked = s.streaming;
+  $("setPersona").value = s.persona;
   // Voice fields
   const v = s.voice;
   $("voiceEngine").value = v.engine;
@@ -1684,6 +1733,7 @@ function saveSettings(){
     wsUrl:      $("setWsUrl").value.trim(),
     autoSendOutput: $("setAutoSend").checked,
     streaming: $("setStreaming").checked,
+    persona: $("setPersona").value.trim(),
     voice: voiceFromForm()
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
@@ -1864,6 +1914,16 @@ function wire(){
   document.querySelectorAll("[data-persona]").forEach(btn => {
     btn.addEventListener("click", () => applyPersona(btn.dataset.persona));
   });
+  document.querySelectorAll("[data-tts]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = TTS_PRESETS[btn.dataset.tts]; if(!p) return;
+      $("voiceEngine").value = "neural"; toggleVoicePanels();
+      $("setTtsBase").value = p.ttsBaseUrl;
+      $("setTtsModel").value = p.ttsModel;
+      $("voiceHint").textContent = p.needsKey ? "Add a TTS key, then Test." : "No key needed — press Test.";
+    });
+  });
+  $("personaDefault").addEventListener("click", () => { $("setPersona").value = DEFAULT_PERSONA; });
   // OS voices load asynchronously; refresh the picker when they arrive.
   if(synth) synth.addEventListener("voiceschanged", () => populateDeviceVoices(getSettings().voice.deviceVoice));
   document.querySelectorAll("[data-preset]").forEach(btn => {

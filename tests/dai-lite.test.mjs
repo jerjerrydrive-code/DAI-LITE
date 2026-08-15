@@ -517,6 +517,27 @@ test("normalizeVoice coerces engine and fills defaults (Warm-woman persona seede
 /* ========================================================================
    System prompt is device-aware and always teaches the RUN: protocol
    ======================================================================== */
+test("buildSystemPrompt uses a custom persona but keeps the RUN: mechanics", () => {
+  const p = D.buildSystemPrompt(D.DEVICE_PROFILES.flipper, "  I am Jerry's helper.  ");
+  assert.match(p, /^I am Jerry's helper\./);          // custom intro, trimmed, on top
+  assert.doesNotMatch(p, /You are DAI-LITE — a direct/); // default persona replaced
+  assert.match(p, /RUN: /);                            // app mechanics still present
+  assert.match(p, /"→ AI" button/);
+});
+
+test("buildSystemPrompt falls back to the default persona when none given", () => {
+  const p = D.buildSystemPrompt(D.DEVICE_PROFILES.flipper, "");
+  assert.ok(p.startsWith(D.DEFAULT_PERSONA));
+  assert.match(p, /RUN: /);
+});
+
+test("TTS_PRESETS include no-key options with /v1 base URLs", () => {
+  assert.equal(D.TTS_PRESETS.edge.needsKey, false);
+  assert.equal(D.TTS_PRESETS.freetts.needsKey, false);
+  assert.equal(D.TTS_PRESETS.openai.needsKey, true);
+  for (const k of Object.keys(D.TTS_PRESETS)) assert.match(D.TTS_PRESETS[k].ttsBaseUrl, /\/v1$/);
+});
+
 test("buildSystemPrompt always explains the RUN: protocol and confirmation", () => {
   const p = D.buildSystemPrompt(D.DEVICE_PROFILES.esp32);
   assert.match(p, /RUN: /);
@@ -549,7 +570,7 @@ test("provider presets have the exact spec Base URLs", () => {
 test("normalizeSettings shapes bad / partial input safely (defaults to auto-detect)", () => {
   const defaults = {
     baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
-    connection: "ble", wsUrl: "", autoSendOutput: false, streaming: true,
+    connection: "ble", wsUrl: "", autoSendOutput: false, streaming: true, persona: "",
     voice: {
       engine: "device", deviceVoice: "", style: "natural",
       ttsBaseUrl: "", ttsKey: "", ttsModel: "gpt-4o-mini-tts", ttsVoice: "nova",
