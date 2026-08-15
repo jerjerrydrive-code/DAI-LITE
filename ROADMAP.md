@@ -31,7 +31,7 @@ Make the Flipper the memory stick.
 2. `storage read` it back on connect to restore memory from the device.
 3. "Sync memory ↔ Flipper" buttons; compact/one-fact-per-line format.
 
-## Phase 3 — Backup & portability
+## Phase 3 — Backup & portability  ✅ built (full backup; password-lock TODO)
 1. **Backup everything** (settings + keys + memory + persona) to one file, and
    restore it — extends the existing key Export/Import. Fixes "I lost it when I
    re-downloaded" for good.

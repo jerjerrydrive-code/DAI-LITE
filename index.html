@@ -321,11 +321,11 @@ Type a command below or let the assistant propose one.
       <button id="providerSave" class="btn accent" title="Save the current Base URL + key + model under this name">Save key set</button>
     </div>
     <div class="inline" style="margin-top:8px">
-      <button id="providerExport" class="btn" title="Download all saved key sets as a backup file">⬇ Export keys</button>
-      <button id="providerImport" class="btn" title="Restore key sets from a backup file">⬆ Import keys</button>
+      <button id="providerExport" class="btn" title="Download a full backup: settings, keys, and memory">⬇ Export backup</button>
+      <button id="providerImport" class="btn" title="Restore everything from a backup file">⬆ Import backup</button>
       <input id="providerImportFile" type="file" accept="application/json,.json" style="display:none" />
     </div>
-    <div class="hint">Back up your key sets to a file so a re-download or new URL can’t lose them. localStorage is tied to the exact page address.</div>
+    <div class="hint">Full backup = settings + persona + mode + key sets + memory. Keep the file so a re-download or new URL can’t lose anything (localStorage is tied to the exact page address).</div>
 
     <label>Base URL</label>
     <input id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" spellcheck="false" />
@@ -2018,15 +2018,20 @@ function deleteSelectedProvider(){
   populateProviderSelect();
   $("modelHint").textContent = "Deleted “" + name + "”.";
 }
+// Full backup: settings (persona/mode/voice/device) + key sets + memory.
 function exportProviders(){
-  const list = getProviders();
-  const blob = new Blob([JSON.stringify({ dailite_providers:list, dailite_memory:getMemory() }, null, 2)], { type:"application/json" });
+  const backup = {
+    dailite_settings: getSettings(),
+    dailite_providers: getProviders(),
+    dailite_memory: getMemory()
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type:"application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = "dai-lite-keys.json";
+  a.href = url; a.download = "dai-lite-backup.json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  $("modelHint").textContent = "Exported " + list.length + " key set(s) to dai-lite-keys.json.";
+  $("modelHint").textContent = "Backed up settings + " + getProviders().length + " key set(s) + memory.";
 }
 function importProvidersFile(file){
   if(!file) return;
@@ -2036,15 +2041,19 @@ function importProvidersFile(file){
       const parsed = JSON.parse(reader.result);
       const { list, count } = mergeProviders(getProviders(), parsed);
       setProviders(list);
-      populateProviderSelect();
-      // Restore memory too, if the backup carried it (append, don't clobber).
-      let memNote = "";
+      const notes = [count + " key set(s)"];
+      // Memory (append, don't clobber).
       if(parsed && typeof parsed.dailite_memory === "string" && parsed.dailite_memory.trim()){
         setMemory(appendMemory(getMemory(), parsed.dailite_memory.split("\n")));
-        if($("setMemory")) $("setMemory").value = getMemory();
-        memNote = " + memory";
+        notes.push("memory");
       }
-      $("modelHint").textContent = "Imported " + count + " key set(s)" + memNote + ". Pick one above and Load.";
+      // Settings (persona/mode/voice/device) — full replace from the backup.
+      if(parsed && parsed.dailite_settings && typeof parsed.dailite_settings === "object"){
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalizeSettings(parsed.dailite_settings)));
+        notes.push("settings");
+      }
+      openSettings();   // repopulate the form + connections from the restored data
+      $("modelHint").textContent = "Imported " + notes.join(" + ") + ".";
     }catch(e){ $("modelHint").textContent = "Import failed — not a valid backup file."; }
   };
   reader.readAsText(file);
