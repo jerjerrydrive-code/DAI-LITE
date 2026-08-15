@@ -443,7 +443,7 @@ test("provider presets have the exact spec Base URLs", () => {
 test("normalizeSettings shapes bad / partial input safely (defaults to auto-detect)", () => {
   const defaults = {
     baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
-    connection: "ble", wsUrl: "",
+    connection: "ble", wsUrl: "", autoSendOutput: false,
     voice: {
       engine: "device", deviceVoice: "", style: "natural",
       ttsBaseUrl: "", ttsKey: "", ttsModel: "gpt-4o-mini-tts", ttsVoice: "nova",
@@ -456,4 +456,10 @@ test("normalizeSettings shapes bad / partial input safely (defaults to auto-dete
   assert.equal(s.baseUrl, "u");
   assert.equal(s.deviceProfile, "esp32");
   assert.deepEqual(s.custom, {});
+});
+
+test("normalizeSettings coerces autoSendOutput to a boolean", () => {
+  assert.equal(D.normalizeSettings('{"autoSendOutput":true}').autoSendOutput, true);
+  assert.equal(D.normalizeSettings('{"autoSendOutput":1}').autoSendOutput, true);
+  assert.equal(D.normalizeSettings("{}").autoSendOutput, false);
 });

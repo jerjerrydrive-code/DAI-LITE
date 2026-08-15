@@ -203,6 +203,8 @@
   .inline{ display:flex; gap:8px; align-items:center; }
   .inline > input, .inline > select{ flex:1; min-width:0; }
   .inline > .btn{ flex:0 0 auto; white-space:nowrap; }
+  .check{ display:flex; align-items:flex-start; gap:9px; margin-top:14px; font-size:13px; color:var(--text); cursor:pointer; line-height:1.4; }
+  .check input{ width:auto; flex:0 0 auto; margin-top:2px; accent-color:var(--teal); }
   .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
   .warn-box strong{ color:var(--copper); }
   .cors{ margin-top:14px; border:1px solid var(--border); border-radius:9px; padding:8px 10px; background:var(--panel-2); }
@@ -314,6 +316,11 @@ Type a command below or let the assistant propose one.
     </div>
     <datalist id="modelList"></datalist>
     <div id="modelHint" class="hint">Tip: click “Load models”, then click the box to pick from the list.</div>
+
+    <label class="check">
+      <input type="checkbox" id="setAutoSend" />
+      <span>Auto-send device output back to the assistant after each Run (hands-free loop). Off = tap “→ AI” yourself.</span>
+    </label>
 
     <details class="cors">
       <summary>Endpoint blocked by CORS? Known fixes</summary>
@@ -576,6 +583,7 @@ function normalizeSettings(raw){
     custom:        s.custom || {},
     connection:    s.connection === "wifi" ? "wifi" : "ble",
     wsUrl:         s.wsUrl || "",
+    autoSendOutput: !!s.autoSendOutput,
     voice:         normalizeVoice(s.voice)
   };
 }
@@ -1079,6 +1087,7 @@ function sendCommand(command){
     if(!ws || ws.readyState !== 1){ termLine("Not connected — connect first.", "err"); return Promise.resolve(false); }
     const p = activeProfile || DEVICE_PROFILES.flipper;
     lastCommand = command; captureBuffer = "";   // reset BEFORE sending so early replies count
+    armAutoSend();
     try{
       ws.send(command + p.lineEnding);
       termLine("> " + command, "cmd");
@@ -1098,6 +1107,7 @@ function sendCommand(command){
     // start replying between chunks, and those bytes must not be wiped.
     lastCommand = command;
     captureBuffer = "";
+    armAutoSend();
     try{
       for(const chunk of chunks){
         // Prefer write-with-response: it waits for the device to acknowledge,
@@ -1129,12 +1139,32 @@ function scheduleNoResponseHint(){
   }, 2600);
 }
 
+// ---- Optional hands-free loop: auto-send device output to the AI ----
+let awaitingAuto = false;   // a command was sent and we're waiting for its output
+let autoTimer = null;       // debounce: fire once output goes quiet
+function autoSendEnabled(){ return getSettings().autoSendOutput; }
+// Called when a command is sent: start (or restart) the auto-send watch. If no
+// output ever arrives (e.g. a silent RPC Flipper), nothing is sent.
+function armAutoSend(){
+  clearTimeout(autoTimer);
+  awaitingAuto = autoSendEnabled();
+}
+function fireAutoSend(){
+  awaitingAuto = false;
+  if(captureBuffer.trim()) sendCapturedOutput();   // still confirm-before-run for any RUN: it proposes
+}
+
 // Shared handler for incoming device text (from BLE notifications or WS frames).
 function ingestText(text){
   if(!text) return;
   gotAnyRx = true;
   termAppend(text, "rx");
   captureBuffer = appendCapture(captureBuffer, text);
+  // Debounce: once output has been quiet for ~1.2s, hand it to the assistant.
+  if(awaitingAuto && autoSendEnabled()){
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(fireAutoSend, 1200);
+  }
 }
 
 /* BLE notification handler: decode incoming bytes as UTF-8, then ingest. */
@@ -1206,6 +1236,7 @@ async function askAI(userText){
 
 // Send the latest captured device output back to the assistant as context.
 function sendCapturedOutput(){
+  clearTimeout(autoTimer); awaitingAuto = false;   // a manual/auto send cancels any pending auto-send
   const out = captureBuffer.trim();
   if(!out){ addMessage("note", "No device output captured yet — run a command first."); return; }
   const content = formatDeviceOutput(lastCommand, out);
@@ -1442,6 +1473,7 @@ function openSettings(){
   $("setLineEnd").value = c.lineEnding || "cr";
   $("setConnection").value = s.connection;
   $("setWsUrl").value = s.wsUrl;
+  $("setAutoSend").checked = s.autoSendOutput;
   // Voice fields
   const v = s.voice;
   $("voiceEngine").value = v.engine;
@@ -1475,6 +1507,7 @@ function saveSettings(){
     },
     connection: $("setConnection").value,
     wsUrl:      $("setWsUrl").value.trim(),
+    autoSendOutput: $("setAutoSend").checked,
     voice: voiceFromForm()
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
