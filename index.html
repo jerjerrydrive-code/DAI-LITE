@@ -1586,10 +1586,36 @@ function setupRecognition(){
   };
   recognition.onerror = () => { /* onend still fires */ };
 }
-function startListening(){
+// Prime microphone permission ONCE via getUserMedia. On a secure origin
+// (https or localhost) this makes the grant persist, so SpeechRecognition
+// stops re-prompting on every press. We release the device right after.
+let micPrimed = false, micNoteShown = false;
+async function primeMic(){
+  if(micPrimed) return true;
+  const md = (typeof navigator !== "undefined") && navigator.mediaDevices;
+  if(!md || !md.getUserMedia){ micPrimed = true; return true; }  // can't prime; let SR try
+  try{
+    const stream = await md.getUserMedia({ audio:true });
+    stream.getTracks().forEach(t => t.stop());                   // grant persists on secure origins
+    micPrimed = true;
+    return true;
+  }catch(_){ return false; }
+}
+async function startListening(){
   if(!recognition || listening) return;
+  // The re-prompt loop is an insecure-origin problem — say so once.
+  if(typeof window !== "undefined" && window.isSecureContext === false && !micNoteShown){
+    micNoteShown = true;
+    addMessage("note", "Heads up: this page isn't a secure origin, so the browser re-asks for the mic every time. Serve it over http://localhost or https:// and the permission sticks.");
+  }
+  const ok = await primeMic();
+  if(!ok){
+    $("mic").classList.remove("listening");
+    addMessage("note", "Microphone blocked. Click the 🔒/ⓘ in the address bar and allow the mic for this site.");
+    return;
+  }
   try{ sendOnEnd = true; listening = true; $("chatInput").value = ""; $("mic").classList.add("listening"); recognition.start(); }
-  catch(_){ listening = false; $("mic").classList.remove("listening"); }
+  catch(_){ listening = false; $("mic").classList.remove("listening"); }   // start() throws if already running — ignore
 }
 function stopListening(){ if(recognition && listening){ try{ recognition.stop(); }catch(_){} } }
 
