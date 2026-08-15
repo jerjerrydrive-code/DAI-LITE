@@ -247,12 +247,17 @@
 
     <!-- LEFT: live device CLI terminal -->
     <section class="panel">
-      <div class="head"><span class="tag" id="devTag">Flipper CLI</span><span class="spacer" style="flex:1"></span><span id="devname" style="text-transform:none;letter-spacing:0"></span></div>
+      <div class="head">
+        <span class="tag" id="devTag">Flipper CLI</span>
+        <span class="spacer" style="flex:1"></span>
+        <span id="devname" style="text-transform:none;letter-spacing:0"></span>
+        <button id="termClear" class="btn icon" title="Clear the terminal" style="padding:3px 8px;font-size:11px">Clear</button>
+      </div>
       <pre id="term"><span class="sys">DAI-LITE terminal ready. Connect a device to begin.
 Type a command below or let the assistant propose one.
 </span></pre>
       <div class="cmdbar">
-        <input id="cmdInput" placeholder="Manual command, e.g. device_info" autocomplete="off" spellcheck="false" />
+        <input id="cmdInput" placeholder="Manual command (↑/↓ for history)" autocomplete="off" spellcheck="false" />
         <button id="cmdSend" class="btn accent">Send</button>
         <button id="toAiBtn" class="btn" title="Send the latest device output back to the assistant">→ AI</button>
       </div>
@@ -773,6 +778,27 @@ function stripRunLines(text){
     .join(" ").replace(/\s+/g," ").trim();
 }
 
+/* ---- Terminal command history ----
+   Shell-style Up/Down recall. `index` equals history.length when the user is on
+   the fresh (empty) line; older entries are toward index 0. */
+function navigateHistory(history, index, dir){
+  const h = history || [];
+  if(!h.length) return { index: 0, value: "" };
+  let i = (typeof index === "number") ? index : h.length;
+  i = Math.max(0, Math.min(h.length, i + (dir < 0 ? -1 : 1)));
+  return { index: i, value: i >= h.length ? "" : h[i] };
+}
+/* Append a command to history: skip blanks and consecutive duplicates, cap size. */
+function pushHistory(history, command, cap){
+  const h = (history || []).slice();
+  const c = String(command == null ? "" : command).trim();
+  if(!c) return h;
+  if(h.length && h[h.length - 1] === c) return h;   // don't repeat the last one
+  h.push(c);
+  const max = cap || 100;
+  return h.length > max ? h.slice(h.length - max) : h;
+}
+
 /* ---- Models + saved provider library ---------------------------------------
    Model discovery via the OpenAI-compatible GET /models, and a tiny library so
    the user can save/switch between multiple named provider setups. */
@@ -880,6 +906,7 @@ if(typeof globalThis !== "undefined"){
     candidateProfiles, buildRequestOptions, matchProfileByServices,
     appendCapture, formatDeviceOutput,
     resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider,
+    navigateHistory, pushHistory,
     normalizeVoice, TTS_VOICES, VOICE_PERSONAS, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseAssistant, stripRunLines
@@ -1613,7 +1640,31 @@ function toggleConnect(){
 }
 
 /* ---- Input helpers ---- */
-function sendManualCommand(){ const v = $("cmdInput").value.trim(); if(!v) return; sendCommand(v); $("cmdInput").value = ""; }
+let cmdHistory = [];                 // past manual commands, oldest first
+let histIndex = 0;                   // cursor into cmdHistory (== length = fresh line)
+
+function sendManualCommand(){
+  const v = $("cmdInput").value.trim();
+  if(!v) return;
+  sendCommand(v);
+  cmdHistory = pushHistory(cmdHistory, v);
+  histIndex = cmdHistory.length;     // back to a fresh line
+  $("cmdInput").value = "";
+}
+// Up/Down recall, like a shell.
+function recallHistory(dir){
+  const r = navigateHistory(cmdHistory, histIndex, dir);
+  histIndex = r.index;
+  const inp = $("cmdInput");
+  inp.value = r.value;
+  // Put the caret at the end after the value changes.
+  setTimeout(() => { try{ inp.setSelectionRange(inp.value.length, inp.value.length); }catch(_){} }, 0);
+}
+function clearTerminal(){
+  const term = $("term");
+  if(term) term.textContent = "";
+  termLine("Terminal cleared.", "sys");
+}
 function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("chatInput").value = ""; askAI(v); }
 
 /* ---- Wiring ---- */
@@ -1628,7 +1679,12 @@ function wire(){
   });
 
   $("cmdSend").addEventListener("click", sendManualCommand);
-  $("cmdInput").addEventListener("keydown", e => { if(e.key === "Enter") sendManualCommand(); });
+  $("cmdInput").addEventListener("keydown", e => {
+    if(e.key === "Enter"){ sendManualCommand(); }
+    else if(e.key === "ArrowUp"){ e.preventDefault(); recallHistory(-1); }
+    else if(e.key === "ArrowDown"){ e.preventDefault(); recallHistory(1); }
+  });
+  $("termClear").addEventListener("click", clearTerminal);
   $("toAiBtn").addEventListener("click", sendCapturedOutput);
 
   $("chatSend").addEventListener("click", sendChat);

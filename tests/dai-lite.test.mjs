@@ -310,6 +310,50 @@ test("extractReply pulls content and is safe on malformed responses", () => {
 });
 
 /* ========================================================================
+   Terminal command history (shell-style Up/Down)
+   ======================================================================== */
+test("pushHistory appends, skips blanks and consecutive duplicates", () => {
+  let h = [];
+  h = D.pushHistory(h, "device_info");
+  h = D.pushHistory(h, "   ");          // blank -> ignored
+  h = D.pushHistory(h, "device_info");  // same as last -> ignored
+  h = D.pushHistory(h, "power info");
+  assert.deepEqual(h, ["device_info", "power info"]);
+});
+
+test("pushHistory trims entries and caps the list length", () => {
+  assert.deepEqual(D.pushHistory([], "  vibro 1  "), ["vibro 1"]);
+  let h = [];
+  for (let i = 0; i < 10; i++) h = D.pushHistory(h, "cmd" + i, 4);
+  assert.deepEqual(h, ["cmd6", "cmd7", "cmd8", "cmd9"]); // oldest dropped
+});
+
+test("navigateHistory walks back through older commands and stops at the start", () => {
+  const h = ["a", "b", "c"];
+  let r = D.navigateHistory(h, 3, -1);      // from the fresh line, Up
+  assert.deepEqual(r, { index: 2, value: "c" });
+  r = D.navigateHistory(h, r.index, -1);
+  assert.deepEqual(r, { index: 1, value: "b" });
+  r = D.navigateHistory(h, 0, -1);          // already oldest -> clamp
+  assert.deepEqual(r, { index: 0, value: "a" });
+});
+
+test("navigateHistory walks forward and lands on an empty fresh line", () => {
+  const h = ["a", "b", "c"];
+  let r = D.navigateHistory(h, 1, 1);
+  assert.deepEqual(r, { index: 2, value: "c" });
+  r = D.navigateHistory(h, 2, 1);           // past the newest -> blank line
+  assert.deepEqual(r, { index: 3, value: "" });
+  r = D.navigateHistory(h, 3, 1);           // clamp at the fresh line
+  assert.deepEqual(r, { index: 3, value: "" });
+});
+
+test("navigateHistory is safe with empty history", () => {
+  assert.deepEqual(D.navigateHistory([], 0, -1), { index: 0, value: "" });
+  assert.deepEqual(D.navigateHistory(null, 0, 1), { index: 0, value: "" });
+});
+
+/* ========================================================================
    Models + saved provider library
    ======================================================================== */
 test("resolveModelsUrl joins the /models path without doubling slashes", () => {
