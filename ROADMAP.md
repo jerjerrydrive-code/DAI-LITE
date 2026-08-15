@@ -52,6 +52,25 @@ separate opt-in build, not the default self-contained file.
 2. Sync `dailite_memory` + key sets to Firestore per signed-in user.
 3. Same pattern your barcode app uses; login is the door, Firestore is storage.
 
+## Phase 5.5 — Native Flipper RPC over BLE (the real fix)
+Research confirms stock Flipper BLE is a **protobuf RPC transport**, not a
+wireless CLI — and a malformed stream makes the firmware *close the session*,
+which is exactly the "connects then disconnects" behavior we saw. So:
+
+1. Treat Flipper as one device behind a **device integration layer** (already the
+   shape of `DEVICE_PROFILES`) rather than special-casing "Flipper support".
+2. Implement a minimal RPC transport: varint-delimited protobuf frames from
+   `flipperzero-protobuf` (Empty/System ping, DeviceInfo, Storage list/read/write,
+   Notification) instead of pushing CLI strings at the BLE characteristics.
+3. Keep the text-CLI path for USB/ESP32 bridges and non-Flipper gear; pick the
+   transport per device.
+4. Reference implementations worth mining: `flipperzero-protobuf` (wire format),
+   `Flipper-Android-App` (BLE discovery/pairing/session handling), `qFlipper`
+   (proven USB backend).
+
+Until then the honest, working paths remain the USB PC bridge and the ESP32
+UART bridge — both already shipped.
+
 ## Phase 6 — Voice-box hardware (ESP32-S3)
 Give the *device* a mic + speaker (the Flipper has neither).
 
