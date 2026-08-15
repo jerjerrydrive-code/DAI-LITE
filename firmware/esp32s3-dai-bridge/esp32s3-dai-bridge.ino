@@ -157,7 +157,12 @@ void feedIncoming(const String& chunk) {
 class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer*) override { bleConnected = true;  digitalWrite(STATUS_LED, HIGH); }
   void onDisconnect(BLEServer* s) override {
-    bleConnected = false; digitalWrite(STATUS_LED, LOW);
+    bleConnected = false;
+#if WIFI_ENABLED
+    if (webSocket.connectedClients() == 0) digitalWrite(STATUS_LED, LOW);
+#else
+    digitalWrite(STATUS_LED, LOW);
+#endif
     s->getAdvertising()->start();     // allow reconnects
   }
 };
@@ -194,7 +199,11 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
     feedIncoming(String((char*)payload).substring(0, length));
   } else if (type == WStype_CONNECTED) {
     digitalWrite(STATUS_LED, HIGH);
-    sendToApp(String("Connected to DAI bridge at ") + WiFi.localIP().toString() + "\r\n");
+    // Greet only the client that just connected — not everyone.
+    webSocket.sendTXT(num, String("Connected to DAI bridge at ") + WiFi.localIP().toString() + "\r\n");
+  } else if (type == WStype_DISCONNECTED) {
+    // Turn the indicator off only when nothing is connected anymore.
+    if (!bleConnected && webSocket.connectedClients() == 0) digitalWrite(STATUS_LED, LOW);
   }
 }
 void setupWiFi() {

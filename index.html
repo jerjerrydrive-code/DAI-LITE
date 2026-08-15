@@ -882,7 +882,10 @@ if(typeof globalThis !== "undefined"){
    DOM LAYER  (browser only — skipped when loaded headlessly by the tests)
    ========================================================================= */
 const $ = (id) => (typeof document !== "undefined" ? document.getElementById(id) : null);
-const rxDecoder = (typeof TextDecoder !== "undefined") ? new TextDecoder() : null;
+// Reassigned (freshly reset) on each connect so a partial multi-byte UTF-8
+// sequence from one session can't bleed a replacement char into the next.
+let rxDecoder = (typeof TextDecoder !== "undefined") ? new TextDecoder() : null;
+function resetRxDecoder(){ if(typeof TextDecoder !== "undefined") rxDecoder = new TextDecoder(); }
 
 /* Shared runtime state */
 let device = null, gattServer = null, txChar = null, rxChar = null;
@@ -983,6 +986,7 @@ async function connectDevice(){
 
     activeTransport = "ble";
     gotAnyRx = false; bleHintShown = false;   // fresh "no reply" watch for this session
+    resetRxDecoder();
     setConnected(true, device.name);
     setDevTag(activeProfile.label);
     termLine("Connected to " + device.name + " — detected " + activeProfile.label + ". Serial link is live — try `help`.", "sys");
@@ -1012,26 +1016,34 @@ function connectWifi(){
   activeProfile = getActiveProfile(s);   // line ending + system prompt still follow the device type
   try{
     termLine("Connecting to " + url + "…", "sys");
-    ws = new WebSocket(url);
-    ws.binaryType = "arraybuffer";
-    ws.onopen = () => {
+    // Capture this exact socket; a later reconnect replaces `ws`, and a stale
+    // socket's late close/error must not tear down the newer connection.
+    const sock = new WebSocket(url);
+    ws = sock;
+    sock.binaryType = "arraybuffer";
+    sock.onopen = () => {
+      if(ws !== sock) return;
       activeTransport = "ws";
       gotAnyRx = false; bleHintShown = true;  // the RPC hint is BLE-only
+      resetRxDecoder();
       setConnected(true, url);
       setDevTag(activeProfile.label);
       termLine("WiFi serial link is live — try `help`.", "sys");
     };
-    ws.onmessage = (e) => {
+    sock.onmessage = (e) => {
+      if(ws !== sock) return;
       let text = "";
       if(typeof e.data === "string") text = e.data;
-      else if(rxDecoder) text = rxDecoder.decode(new Uint8Array(e.data));
+      else if(rxDecoder) text = rxDecoder.decode(new Uint8Array(e.data), { stream:true });
       ingestText(text);
     };
-    ws.onclose = () => {
-      if(activeTransport === "ws"){ activeTransport = null; ws = null; setConnected(false); termLine("WiFi disconnected.", "err"); }
-      else { ws = null; }
+    sock.onclose = () => {
+      if(ws !== sock) return;                 // superseded by a newer socket
+      if(activeTransport === "ws"){ activeTransport = null; setConnected(false); termLine("WiFi disconnected.", "err"); }
+      ws = null;
     };
-    ws.onerror = () => {
+    sock.onerror = () => {
+      if(ws !== sock) return;
       termLine("WiFi error: could not reach " + url + ". Is the bridge running? (An https:// page can only use wss://.)", "err");
     };
   }catch(err){
@@ -1066,10 +1078,10 @@ function sendCommand(command){
   if(activeTransport === "ws"){
     if(!ws || ws.readyState !== 1){ termLine("Not connected — connect first.", "err"); return Promise.resolve(false); }
     const p = activeProfile || DEVICE_PROFILES.flipper;
+    lastCommand = command; captureBuffer = "";   // reset BEFORE sending so early replies count
     try{
       ws.send(command + p.lineEnding);
       termLine("> " + command, "cmd");
-      lastCommand = command; captureBuffer = "";
       return Promise.resolve(true);
     }catch(err){
       termLine("Send failed: " + (err && err.message ? err.message : err), "err");
@@ -1082,6 +1094,10 @@ function sendCommand(command){
     if(!txChar){ termLine("Not connected — connect a device first.", "err"); return false; }
     const p = activeProfile || DEVICE_PROFILES.flipper;
     const chunks = chunkBytes(frameCommand(command, p.lineEnding), p.chunkSize);
+    // Reset the capture window BEFORE the first byte goes out: a fast device may
+    // start replying between chunks, and those bytes must not be wiped.
+    lastCommand = command;
+    captureBuffer = "";
     try{
       for(const chunk of chunks){
         // Prefer write-with-response: it waits for the device to acknowledge,
@@ -1092,8 +1108,6 @@ function sendCommand(command){
         await sleep(12);              // small gap so the firmware keeps up
       }
       termLine("> " + command, "cmd");
-      lastCommand = command;          // start a fresh capture window for this command
-      captureBuffer = "";
       scheduleNoResponseHint();       // warn if the device never replies (RPC firmware)
       return true;
     }catch(err){
@@ -1238,12 +1252,14 @@ async function runAiTurn(){
 }
 
 /* ---- Voice ---- */
-let currentAudio = null;   // the neural TTS <audio> currently playing
-let neuralWarned = false;  // only nag once if neural TTS fails
+let currentAudio = null;      // the neural TTS <audio> currently playing
+let currentAudioUrl = null;   // its object URL, revoked when we stop/replace it
+let neuralWarned = false;     // only nag once if neural TTS fails
 
 function stopSpeaking(){
   if(synth) synth.cancel();
   if(currentAudio){ try{ currentAudio.pause(); }catch(_){} currentAudio = null; }
+  if(currentAudioUrl){ URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null; } // don't leak the mp3 blob
 }
 
 // Speak with the saved voice settings.
@@ -1269,8 +1285,9 @@ async function speakNeural(text, v){
     });
     if(!res.ok) throw new Error("HTTP " + res.status);
     const url = URL.createObjectURL(new Blob([await res.arrayBuffer()], { type:"audio/mpeg" }));
+    currentAudioUrl = url;
     currentAudio = new Audio(url);
-    currentAudio.onended = () => URL.revokeObjectURL(url);
+    currentAudio.onended = () => { URL.revokeObjectURL(url); if(currentAudioUrl === url) currentAudioUrl = null; };
     await currentAudio.play();
     return true;
   }catch(err){
@@ -1392,8 +1409,10 @@ async function loadModels(){
 /* ---- Settings UI ---- */
 function setDevTag(text){ const tag = $("devTag"); if(tag) tag.textContent = text + " CLI"; }
 
-// Reflect the chosen mode in the terminal header (before any device is detected).
+// Reflect the current device in the terminal header. When connected, show the
+// live (detected) profile; otherwise show the chosen mode.
 function updateDeviceLabel(){
+  if(isConnected()){ setDevTag(activeProfile.label); return; }
   const s = getSettings();
   const key = s.deviceProfile || "auto";
   setDevTag(key === "auto" ? "Auto-detect" : getActiveProfile(s).label);
@@ -1460,7 +1479,9 @@ function saveSettings(){
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   $("settingsOverlay").classList.remove("show");
-  activeProfile = getActiveProfile(getSettings()); // keep system-prompt device in sync
+  // Only re-derive the profile from settings when NOT connected — otherwise we'd
+  // clobber the profile auto-detected for the live device (wrong line ending etc).
+  if(!isConnected()) activeProfile = getActiveProfile(getSettings());
   updateDeviceLabel();
 }
 
@@ -1548,10 +1569,12 @@ function setConnected(connected, name){
   $("devname").textContent = connected && name ? name : "";
   $("connectBtn").textContent = connected ? "Disconnect" : "Connect";
 }
+function isConnected(){
+  return (activeTransport === "ws" && ws && ws.readyState === 1) ||
+         (activeTransport === "ble" && gattServer && gattServer.connected);
+}
 function toggleConnect(){
-  const connected = (activeTransport === "ws" && ws && ws.readyState === 1) ||
-                    (activeTransport === "ble" && gattServer && gattServer.connected);
-  if(connected){ disconnectActive(); return; }
+  if(isConnected()){ disconnectActive(); return; }
   const conn = getSettings().connection || "ble";
   if(conn === "wifi") connectWifi(); else connectDevice();
 }
