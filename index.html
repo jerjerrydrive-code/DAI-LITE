@@ -1540,14 +1540,33 @@ async function speakWith(text, v){
 // Load the Puter SDK on demand (opt-in only), so the file stays self-contained
 // unless the user actually chooses Puter voices.
 let puterLoading = null;
+function puterReady(){
+  return typeof window !== "undefined" && window.puter && window.puter.ai &&
+         typeof window.puter.ai.txt2speech === "function";
+}
 function loadPuter(){
-  if(typeof window !== "undefined" && window.puter) return Promise.resolve(window.puter);
+  if(puterReady()) return Promise.resolve(window.puter);
   if(puterLoading) return puterLoading;
   puterLoading = new Promise((resolve, reject) => {
+    // The SDK sets window.puter a moment AFTER the script's onload fires, so
+    // poll for the API to actually appear rather than checking once.
+    const waitForApi = () => {
+      let tries = 0;
+      const iv = setInterval(() => {
+        if(puterReady()){ clearInterval(iv); resolve(window.puter); }
+        else if(++tries > 40){   // ~4s
+          clearInterval(iv); puterLoading = null;
+          reject(new Error("Puter didn't initialize — it needs an http(s):// page (not file://) and network access"));
+        }
+      }, 100);
+    };
+    const existing = document.querySelector('script[data-puter]');
+    if(existing){ waitForApi(); return; }
     const sc = document.createElement("script");
     sc.src = "https://js.puter.com/v2/";
-    sc.onload = () => window.puter ? resolve(window.puter) : reject(new Error("Puter SDK loaded but unavailable"));
-    sc.onerror = () => { puterLoading = null; reject(new Error("could not load the Puter SDK (blocked or offline)")); };
+    sc.setAttribute("data-puter", "1");
+    sc.onload = waitForApi;
+    sc.onerror = () => { puterLoading = null; reject(new Error("could not load the Puter SDK (blocked, offline, or CSP)")); };
     document.head.appendChild(sc);
   });
   return puterLoading;
