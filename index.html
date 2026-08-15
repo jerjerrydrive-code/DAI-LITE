@@ -206,6 +206,14 @@
   .inline > .btn{ flex:0 0 auto; white-space:nowrap; }
   .check{ display:flex; align-items:flex-start; gap:9px; margin-top:14px; font-size:13px; color:var(--text); cursor:pointer; line-height:1.4; }
   .check input{ width:auto; flex:0 0 auto; margin-top:2px; accent-color:var(--teal); }
+  .conn{ border:1px solid var(--border); border-radius:10px; background:var(--panel-2); padding:6px 10px; margin-bottom:12px; }
+  .conn-row{ display:flex; align-items:center; gap:9px; padding:5px 0; font-size:12.5px; }
+  .conn-row + .conn-row{ border-top:1px solid var(--border); }
+  .conn-dot{ width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+  .conn-dot.ok{ background:var(--ok); box-shadow:0 0 6px var(--ok); }
+  .conn-dot.warn{ background:var(--copper); }
+  .conn-label{ font-weight:700; width:58px; flex:0 0 auto; color:var(--text); }
+  .conn-detail{ color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
   .warn-box strong{ color:var(--copper); }
   .cors{ margin-top:14px; border:1px solid var(--border); border-radius:9px; padding:8px 10px; background:var(--panel-2); }
@@ -283,6 +291,9 @@ Type a command below or let the assistant propose one.
 <div id="settingsOverlay" class="overlay">
   <div class="modal">
     <h2><span class="accent">Settings</span></h2>
+
+    <div class="section">Connections</div>
+    <div id="connStatus" class="conn"></div>
 
     <button id="easySetup" class="btn primary" style="width:100%;padding:12px" title="Set up free AI + voice with no keys">⚡ Easy setup — free AI &amp; voice, no keys</button>
     <div class="hint" style="margin-top:6px">One tap configures Puter (free, keyless) for both the assistant and the voice. A quick one-time Puter sign-in may appear. You can still set your own provider below.</div>
@@ -985,6 +996,36 @@ function parseModels(json){
   return out.filter((v, i) => v && out.indexOf(v) === i).sort(); // de-dupe + sort
 }
 
+/* Friendly name for an AI base URL (for the status dashboard). */
+function providerName(baseUrl){
+  const b = String(baseUrl || "").toLowerCase();
+  if(!b) return "";
+  if(/^\s*puter\b/.test(b)) return "Puter (free)";
+  if(b.includes("openrouter.ai")) return "OpenRouter";
+  if(b.includes("nvidia.com")) return "NVIDIA";
+  if(b.includes("11434")) return "Ollama (local)";
+  try{ return new URL(baseUrl).host; }catch(_){ return baseUrl; }
+}
+
+/* Build the "connections" status rows from settings + live device state. */
+function describeConnections(settings, state){
+  const s = settings || {}, st = state || {};
+  const eng = (s.voice && s.voice.engine) || "device";
+  const voiceLabel = eng === "puter" ? "Puter — free, realistic"
+                    : eng === "neural" ? "Neural — your TTS"
+                    : "Device — built-in";
+  const n = st.memoryCount || 0;
+  return [
+    { key:"ai", label:"AI", ok:!!s.baseUrl,
+      detail: s.baseUrl ? (providerName(s.baseUrl) + (s.model ? " · " + s.model : "")) : "not set — tap ⚡ Easy setup" },
+    { key:"voice", label:"Voice", ok:true, detail: voiceLabel },
+    { key:"device", label:"Device", ok:!!st.connected,
+      detail: st.connected ? ((st.transport === "ws" ? "WiFi" : "Bluetooth") + " · " + (st.deviceLabel || "")) : "not connected" },
+    { key:"memory", label:"Memory", ok:true, detail: n ? (n + " fact" + (n === 1 ? "" : "s") + " remembered") : "empty" },
+    { key:"mode", label:"Mode", ok:true, detail: (s.mode === "dai" ? "Dai — companion" : "Lite — Flipper co-pilot") }
+  ];
+}
+
 /* Immutable helpers for the saved-provider list (keyed by unique name). */
 function upsertProvider(list, entry){
   const others = (list || []).filter(p => p && p.name !== entry.name);
@@ -1080,6 +1121,7 @@ if(typeof globalThis !== "undefined"){
     candidateProfiles, buildRequestOptions, matchProfileByServices,
     appendCapture, formatDeviceOutput,
     resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider, mergeProviders,
+    providerName, describeConnections,
     navigateHistory, pushHistory,
     normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, LITE_PERSONA, DAI_PERSONA, personaForMode,
     extractMemories, appendMemory,
@@ -1978,6 +2020,27 @@ async function loadModels(){
   }
 }
 
+/* ---- Connections dashboard ---- */
+function renderConnections(){
+  const box = $("connStatus"); if(!box) return;
+  const memoryCount = getMemory().split("\n").map(x => x.trim()).filter(Boolean).length;
+  const items = describeConnections(getSettings(), {
+    connected: isConnected(),
+    transport: activeTransport,
+    deviceLabel: activeProfile && activeProfile.label,
+    memoryCount
+  });
+  box.textContent = "";
+  for(const it of items){
+    const row = document.createElement("div"); row.className = "conn-row";
+    const dot = document.createElement("span"); dot.className = "conn-dot " + (it.ok ? "ok" : "warn");
+    const lab = document.createElement("span"); lab.className = "conn-label"; lab.textContent = it.label;
+    const det = document.createElement("span"); det.className = "conn-detail"; det.textContent = it.detail;
+    row.append(dot, lab, det);
+    box.appendChild(row);
+  }
+}
+
 /* ---- Settings UI ---- */
 function setDevTag(text){ const tag = $("devTag"); if(tag) tag.textContent = text + " CLI"; }
 
@@ -2035,6 +2098,7 @@ function openSettings(){
   $("keyReveal").classList.remove("on");
   populateProviderSelect();
   toggleCustomFields();
+  renderConnections();
   $("settingsOverlay").classList.add("show");
 }
 function saveSettings(){

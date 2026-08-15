@@ -481,6 +481,45 @@ test("provider library: remove and find", () => {
 });
 
 /* ========================================================================
+   Connections dashboard
+   ======================================================================== */
+test("providerName recognizes the presets and falls back to host", () => {
+  assert.equal(D.providerName("puter"), "Puter (free)");
+  assert.equal(D.providerName("https://openrouter.ai/api/v1"), "OpenRouter");
+  assert.equal(D.providerName("http://192.168.1.9:11434/v1"), "Ollama (local)");
+  assert.equal(D.providerName("https://my.host.ai/v1"), "my.host.ai");
+  assert.equal(D.providerName(""), "");
+});
+
+test("describeConnections reports AI as not-ok when no base URL", () => {
+  const rows = D.describeConnections({ baseUrl: "", voice: { engine: "device" }, mode: "lite" }, {});
+  const ai = rows.find(r => r.key === "ai");
+  assert.equal(ai.ok, false);
+  assert.match(ai.detail, /Easy setup/);
+});
+
+test("describeConnections reflects provider, voice engine, device, memory, mode", () => {
+  const rows = D.describeConnections(
+    { baseUrl: "puter", model: "gpt-4o-mini", voice: { engine: "puter" }, mode: "dai" },
+    { connected: true, transport: "ws", deviceLabel: "Flipper Zero", memoryCount: 3 }
+  );
+  const by = (k) => rows.find(r => r.key === k);
+  assert.equal(by("ai").ok, true);
+  assert.match(by("ai").detail, /Puter \(free\) · gpt-4o-mini/);
+  assert.match(by("voice").detail, /Puter/);
+  assert.equal(by("device").ok, true);
+  assert.match(by("device").detail, /WiFi · Flipper Zero/);
+  assert.match(by("memory").detail, /3 facts/);
+  assert.match(by("mode").detail, /Dai/);
+});
+
+test("describeConnections singularizes one memory fact and shows disconnected", () => {
+  const rows = D.describeConnections({ baseUrl: "x", voice: {}, mode: "lite" }, { connected: false, memoryCount: 1 });
+  assert.match(rows.find(r => r.key === "memory").detail, /1 fact remembered/);
+  assert.equal(rows.find(r => r.key === "device").ok, false);
+});
+
+/* ========================================================================
    Modes + memory
    ======================================================================== */
 test("personaForMode picks the right persona", () => {
