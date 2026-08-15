@@ -200,6 +200,9 @@
   .modal .section{ font-size:11px; letter-spacing:.7px; text-transform:uppercase; color:var(--teal); font-weight:700; }
   .hint{ font-size:11px; color:var(--muted); margin-top:6px; }
   .two{ display:flex; gap:8px; } .two > *{ flex:1; min-width:0; }
+  .inline{ display:flex; gap:8px; align-items:center; }
+  .inline > input, .inline > select{ flex:1; min-width:0; }
+  .inline > .btn{ flex:0 0 auto; white-space:nowrap; }
   .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
   .warn-box strong{ color:var(--copper); }
   .cors{ margin-top:14px; border:1px solid var(--border); border-radius:9px; padding:8px 10px; background:var(--panel-2); }
@@ -283,15 +286,34 @@ Type a command below or let the assistant propose one.
       <button class="btn" data-preset="ollama">Ollama (local)</button>
     </div>
 
+    <label>Saved providers</label>
+    <div class="inline">
+      <select id="providerSelect"><option value="">— none saved —</option></select>
+      <button id="providerLoad" class="btn" title="Load the selected saved provider">Load</button>
+      <button id="providerDelete" class="btn" title="Delete the selected saved provider">✕</button>
+    </div>
+    <div class="inline" style="margin-top:8px">
+      <input id="providerName" placeholder="Name this setup, e.g. OpenRouter-main" spellcheck="false" />
+      <button id="providerSave" class="btn accent" title="Save the current Base URL + key + model under this name">Save key set</button>
+    </div>
+
     <label>Base URL</label>
     <input id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" spellcheck="false" />
 
     <label>API Key</label>
-    <input id="setApiKey" type="password" placeholder="sk-…" spellcheck="false" />
-    <div class="hint">Local Ollama ignores the key — leave it blank.</div>
+    <div class="inline">
+      <input id="setApiKey" type="password" placeholder="sk-…" spellcheck="false" />
+      <button id="keyReveal" class="btn" type="button" title="Show / hide the key">👁</button>
+    </div>
+    <div class="hint">Local Ollama ignores the key — leave it blank. Keys are saved in this browser only.</div>
 
     <label>Model</label>
-    <input id="setModel" placeholder="e.g. openai/gpt-4o-mini · meta/llama-3.1-70b-instruct · llama3.1" spellcheck="false" />
+    <div class="inline">
+      <input id="setModel" list="modelList" placeholder="e.g. openai/gpt-4o-mini · llama3.1" spellcheck="false" />
+      <button id="modelLoad" class="btn" title="Fetch the list of models this provider offers">Load models</button>
+    </div>
+    <datalist id="modelList"></datalist>
+    <div id="modelHint" class="hint">Tip: click “Load models”, then click the box to pick from the list.</div>
 
     <details class="cors">
       <summary>Endpoint blocked by CORS? Known fixes</summary>
@@ -604,6 +626,36 @@ function stripRunLines(text){
     .join(" ").replace(/\s+/g," ").trim();
 }
 
+/* ---- Models + saved provider library ---------------------------------------
+   Model discovery via the OpenAI-compatible GET /models, and a tiny library so
+   the user can save/switch between multiple named provider setups. */
+
+function resolveModelsUrl(baseUrl){
+  return String(baseUrl || "").replace(/\/+$/,"") + "/models";
+}
+
+/* Extract model id strings from a /models response (handles the common shapes:
+   {data:[{id}]}, {models:[...]}, or a bare array of ids/objects). */
+function parseModels(json){
+  const arr = (json && (json.data || json.models)) || (Array.isArray(json) ? json : []);
+  const out = [];
+  if(Array.isArray(arr)){
+    for(const m of arr){
+      if(typeof m === "string") out.push(m);
+      else if(m && (m.id || m.name)) out.push(m.id || m.name);
+    }
+  }
+  return out.filter((v, i) => v && out.indexOf(v) === i).sort(); // de-dupe + sort
+}
+
+/* Immutable helpers for the saved-provider list (keyed by unique name). */
+function upsertProvider(list, entry){
+  const others = (list || []).filter(p => p && p.name !== entry.name);
+  return others.concat([entry]);
+}
+function removeProvider(list, name){ return (list || []).filter(p => p && p.name !== name); }
+function findProvider(list, name){ return (list || []).find(p => p && p.name === name) || null; }
+
 /* ---- Auto-detection helpers -------------------------------------------------
    The web can't silently scan for devices — every connection goes through the
    browser's chooser after a click. But we CAN detect a device's type: pre-filter
@@ -680,6 +732,7 @@ if(typeof globalThis !== "undefined"){
     lineEndingFromCode, normalizeSettings, getActiveProfile, profileIsComplete,
     candidateProfiles, buildRequestOptions, matchProfileByServices,
     appendCapture, formatDeviceOutput,
+    resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
     resolveChatUrl, extractReply, parseAssistant, stripRunLines
   };
@@ -1010,6 +1063,72 @@ function startListening(){
 }
 function stopListening(){ if(recognition && listening){ try{ recognition.stop(); }catch(_){} } }
 
+/* ---- Saved provider library (multiple named key sets) ---- */
+const PROVIDERS_KEY = "dailite_providers";
+function getProviders(){ try{ return JSON.parse(localStorage.getItem(PROVIDERS_KEY)) || []; }catch(_){ return []; } }
+function setProviders(list){ localStorage.setItem(PROVIDERS_KEY, JSON.stringify(list)); }
+
+function populateProviderSelect(){
+  const sel = $("providerSelect"); if(!sel) return;
+  const list = getProviders();
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = ""; first.textContent = list.length ? "— pick a saved provider —" : "— none saved —";
+  sel.appendChild(first);
+  list.forEach(p => { const o = document.createElement("option"); o.value = p.name; o.textContent = p.name; sel.appendChild(o); });
+}
+function saveCurrentProvider(){
+  const name = $("providerName").value.trim();
+  if(!name){ $("modelHint").textContent = "Enter a name first, then Save key set."; return; }
+  const entry = { name, baseUrl:$("setBaseUrl").value.trim(), apiKey:$("setApiKey").value.trim(), model:$("setModel").value.trim() };
+  setProviders(upsertProvider(getProviders(), entry));
+  populateProviderSelect();
+  $("providerSelect").value = name;
+  $("modelHint").textContent = "Saved key set “" + name + "”.";
+}
+function loadSelectedProvider(){
+  const name = $("providerSelect").value; if(!name) return;
+  const p = findProvider(getProviders(), name); if(!p) return;
+  $("setBaseUrl").value = p.baseUrl || "";
+  $("setApiKey").value  = p.apiKey || "";
+  $("setModel").value   = p.model || "";
+  $("providerName").value = name;
+  $("modelHint").textContent = "Loaded “" + name + "”. Save settings to make it active.";
+}
+function deleteSelectedProvider(){
+  const name = $("providerSelect").value; if(!name) return;
+  setProviders(removeProvider(getProviders(), name));
+  populateProviderSelect();
+  $("modelHint").textContent = "Deleted “" + name + "”.";
+}
+function toggleKeyReveal(){
+  const inp = $("setApiKey");
+  inp.type = (inp.type === "password") ? "text" : "password";
+  $("keyReveal").classList.toggle("on", inp.type === "text");
+}
+
+/* Fetch the provider's available models into the datalist for the Model box. */
+async function loadModels(){
+  const base = $("setBaseUrl").value.trim();
+  if(!base){ $("modelHint").textContent = "Set a Base URL first."; return; }
+  $("modelHint").textContent = "Loading models…";
+  try{
+    const headers = {};
+    const key = $("setApiKey").value.trim();
+    if(key) headers["Authorization"] = "Bearer " + key;
+    const res = await fetch(resolveModelsUrl(base), { headers });
+    if(!res.ok){ $("modelHint").textContent = "Couldn't load models (HTTP " + res.status + "). Check the Base URL/key."; return; }
+    const ids = parseModels(await res.json());
+    const dl = $("modelList"); dl.innerHTML = "";
+    ids.forEach(id => { const o = document.createElement("option"); o.value = id; dl.appendChild(o); });
+    $("modelHint").textContent = ids.length
+      ? (ids.length + " models loaded — click the Model box to pick.")
+      : "The provider returned no model list.";
+  }catch(err){
+    $("modelHint").textContent = "Model list failed: " + (err && err.message ? err.message : err) + " (often CORS).";
+  }
+}
+
 /* ---- Settings UI ---- */
 function setDevTag(text){ const tag = $("devTag"); if(tag) tag.textContent = text + " CLI"; }
 
@@ -1042,6 +1161,9 @@ function openSettings(){
   $("setTx").value      = c.txChar || "";
   $("setRx").value      = c.rxChar || "";
   $("setLineEnd").value = c.lineEnding || "cr";
+  $("setApiKey").type = "password";                 // always re-mask on open
+  $("keyReveal").classList.remove("on");
+  populateProviderSelect();
   toggleCustomFields();
   $("settingsOverlay").classList.add("show");
 }
@@ -1113,6 +1235,11 @@ function wire(){
   $("setSave").addEventListener("click", saveSettings);
   $("setCancel").addEventListener("click", () => $("settingsOverlay").classList.remove("show"));
   $("setDevice").addEventListener("change", toggleCustomFields);
+  $("keyReveal").addEventListener("click", toggleKeyReveal);
+  $("modelLoad").addEventListener("click", loadModels);
+  $("providerSave").addEventListener("click", saveCurrentProvider);
+  $("providerLoad").addEventListener("click", loadSelectedProvider);
+  $("providerDelete").addEventListener("click", deleteSelectedProvider);
   document.querySelectorAll("[data-preset]").forEach(btn => {
     btn.addEventListener("click", () => {
       const p = PRESETS[btn.dataset.preset];

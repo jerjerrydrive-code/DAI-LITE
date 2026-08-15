@@ -310,6 +310,49 @@ test("extractReply pulls content and is safe on malformed responses", () => {
 });
 
 /* ========================================================================
+   Models + saved provider library
+   ======================================================================== */
+test("resolveModelsUrl joins the /models path without doubling slashes", () => {
+  assert.equal(D.resolveModelsUrl("https://openrouter.ai/api/v1"), "https://openrouter.ai/api/v1/models");
+  assert.equal(D.resolveModelsUrl("https://openrouter.ai/api/v1/"), "https://openrouter.ai/api/v1/models");
+});
+
+test("parseModels handles the OpenAI {data:[{id}]} shape (de-duped, sorted)", () => {
+  const ids = D.parseModels({ data: [{ id: "gpt-4o-mini" }, { id: "gpt-4o" }, { id: "gpt-4o-mini" }] });
+  assert.deepEqual(ids, ["gpt-4o", "gpt-4o-mini"]);
+});
+
+test("parseModels handles {models:[...]}, bare arrays, and objects", () => {
+  assert.deepEqual(D.parseModels({ models: ["llama3.1", "mistral"] }), ["llama3.1", "mistral"]);
+  assert.deepEqual(D.parseModels(["b", "a"]), ["a", "b"]);
+  assert.deepEqual(D.parseModels([{ name: "x" }]), ["x"]);
+});
+
+test("parseModels is safe on junk input", () => {
+  assert.deepEqual(D.parseModels(null), []);
+  assert.deepEqual(D.parseModels({}), []);
+  assert.deepEqual(D.parseModels({ data: "nope" }), []);
+});
+
+test("provider library: upsert adds then replaces by name", () => {
+  let list = [];
+  list = D.upsertProvider(list, { name: "A", apiKey: "k1" });
+  list = D.upsertProvider(list, { name: "B", apiKey: "k2" });
+  assert.deepEqual(list.map((p) => p.name), ["A", "B"]);
+  list = D.upsertProvider(list, { name: "A", apiKey: "k1-new" }); // replace, not duplicate
+  assert.equal(list.length, 2);
+  assert.equal(D.findProvider(list, "A").apiKey, "k1-new");
+});
+
+test("provider library: remove and find", () => {
+  const list = [{ name: "A" }, { name: "B" }];
+  assert.deepEqual(D.removeProvider(list, "A").map((p) => p.name), ["B"]);
+  assert.equal(D.findProvider(list, "B").name, "B");
+  assert.equal(D.findProvider(list, "Z"), null);
+  assert.deepEqual(D.removeProvider(null, "A"), []);
+});
+
+/* ========================================================================
    System prompt is device-aware and always teaches the RUN: protocol
    ======================================================================== */
 test("buildSystemPrompt always explains the RUN: protocol and confirmation", () => {
