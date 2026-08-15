@@ -275,7 +275,7 @@ Type a command below or let the assistant propose one.
 
     <!-- RIGHT: AI voice / chat conversation -->
     <section class="panel">
-      <div class="head"><span class="tag ai">Assistant</span></div>
+      <div class="head"><span class="tag ai">Assistant</span><span class="spacer" style="flex:1"></span><button id="newChat" class="btn icon" title="Start a new conversation (keeps memory)" style="padding:3px 8px;font-size:11px">New chat</button></div>
       <div id="chat"></div>
       <div class="chatbar">
         <button id="mic" class="btn icon" title="Hold to talk">🎙️</button>
@@ -2385,6 +2385,12 @@ function clearTerminal(){
   termLine("Terminal cleared.", "sys");
 }
 function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("chatInput").value = ""; askAI(v); }
+function newChat(){
+  conversation = [];                 // fresh context; long-term memory is untouched
+  const chat = $("chat"); if(chat) chat.textContent = "";
+  stopSpeaking();
+  addMessage("note", "New conversation. Memory is kept — say hi.");
+}
 
 /* ---- Wiring ---- */
 function wire(){
@@ -2408,6 +2414,7 @@ function wire(){
 
   $("chatSend").addEventListener("click", sendChat);
   $("chatInput").addEventListener("keydown", e => { if(e.key === "Enter") sendChat(); });
+  $("newChat").addEventListener("click", newChat);
 
   const mic = $("mic");
   mic.addEventListener("pointerdown", e => { e.preventDefault(); startListening(); });
