@@ -1134,7 +1134,7 @@ function scheduleNoResponseHint(){
   setTimeout(() => {
     if(!gotAnyRx && !bleHintShown && txChar){
       bleHintShown = true;
-      termLine("No reply received. Stock Flipper firmware uses RPC (not a raw text CLI) over Bluetooth, so plain-text commands may get no response — this is expected, not a bug. To get the real CLI, use the ESP32-S3 bridge (see firmware/README.md → 'Why the Flipper may not respond').", "sys");
+      termLine("No reply received. Stock Flipper firmware uses RPC (not a raw text CLI) over Bluetooth, so plain-text commands get no response here — expected, not a bug.\nFastest fix: plug the Flipper into a PC over USB (its USB CLI *is* plain text) and run bridge/dai_bridge.py, then switch Connection to WiFi. Untethered option: the ESP32-S3 bridge in firmware/.", "sys");
     }
   }, 2600);
 }
