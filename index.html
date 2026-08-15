@@ -1031,15 +1031,18 @@ function providerName(baseUrl){
 /* Build the "connections" status rows from settings + live device state. */
 function describeConnections(settings, state){
   const s = settings || {}, st = state || {};
-  const eng = (s.voice && s.voice.engine) || "device";
+  const v = s.voice || {};
+  const eng = v.engine || "device";
+  const neuralReady = !!(v.ttsBaseUrl && v.ttsKey);
+  const voiceOk = eng === "neural" ? neuralReady : true;   // device + puter always work
   const voiceLabel = eng === "puter" ? "Puter — free, realistic"
-                    : eng === "neural" ? "Neural — your TTS"
+                    : eng === "neural" ? (neuralReady ? "Neural — your TTS" : "Neural — add TTS URL + key")
                     : "Device — built-in";
   const n = st.memoryCount || 0;
   return [
     { key:"ai", label:"AI", ok:!!s.baseUrl,
       detail: s.baseUrl ? (providerName(s.baseUrl) + (s.model ? " · " + s.model : "")) : "not set — tap ⚡ Easy setup" },
-    { key:"voice", label:"Voice", ok:true, detail: voiceLabel },
+    { key:"voice", label:"Voice", ok:voiceOk, detail: voiceLabel },
     { key:"device", label:"Device", ok:!!st.connected,
       detail: st.connected ? ((st.transport === "ws" ? "WiFi" : "Bluetooth") + " · " + (st.deviceLabel || "")) : "not connected" },
     { key:"memory", label:"Memory", ok:true, detail: n ? (n + " fact" + (n === 1 ? "" : "s") + " remembered") : "empty" },
@@ -1192,11 +1195,17 @@ function persistMemory(facts){
   setMemory(appendMemory(getMemory(), facts));
   facts.forEach(f => addMessage("note", "🧠 Remembered: " + f));
 }
-// Persist any REMEMBER: facts from a reply and return the text without them.
-function afterReplyClean(reply){
+// Persist REMEMBER: facts, then (unless already drawn) render + speak the prose.
+// A memory-only reply yields no bubble and no speech. Returns the cleaned text.
+function renderAndSpeak(reply, alreadyRendered){
   const { facts, text } = extractMemories(reply);
   persistMemory(facts);
-  return (text && text.trim()) ? text : reply;
+  const clean = text.trim();
+  if(!clean) return "";
+  conversation.push({ role:"assistant", content:clean });
+  if(!alreadyRendered) addMessage("assistant", clean);
+  speak(pronounceForSpeech(stripRunLines(clean)));
+  return clean;
 }
 
 /* ---- Mode (Dai companion vs Lite Flipper co-pilot) ---- */
@@ -1447,29 +1456,35 @@ async function saveMemoryToFlipper(){
   if(!isConnected()){ addMessage("note", "Connect the Flipper first."); return; }
   const mem = getMemory().trim();
   if(!mem){ addMessage("note", "Memory is empty — nothing to save."); return; }
-  addMessage("note", "Saving memory to /ext/dai/memory.txt on the Flipper…");
-  await sendCommand("storage mkdir /ext/dai");              // fine if it exists
-  await sleep(250);
-  await sendCommand("storage remove /ext/dai/memory.txt");  // overwrite cleanly (fine if missing)
-  await sleep(250);
-  await sendCommand("storage write /ext/dai/memory.txt");   // enters write mode
-  await sleep(450);
-  await sendRaw(mem + "\n");                                // the content
-  await sleep(250);
-  await sendRaw("\x03");                                    // Ctrl+C ends the write
-  addMessage("note", "Sent. Check the terminal for the Flipper's confirmation.");
+  memorySyncing = true;   // don't let auto-send forward the storage chatter to the AI
+  try{
+    addMessage("note", "Saving memory to /ext/dai/memory.txt on the Flipper…");
+    await sendCommand("storage mkdir /ext/dai");              // fine if it exists
+    await sleep(250);
+    await sendCommand("storage remove /ext/dai/memory.txt");  // overwrite cleanly (fine if missing)
+    await sleep(250);
+    await sendCommand("storage write /ext/dai/memory.txt");   // enters write mode
+    await sleep(450);
+    await sendRaw(mem + "\n");                                // the content
+    await sleep(250);
+    await sendRaw("\x03");                                    // Ctrl+C ends the write
+    addMessage("note", "Sent. Check the terminal for the Flipper's confirmation.");
+  }finally{ awaitingAuto = false; clearTimeout(autoTimer); memorySyncing = false; }
 }
 async function loadMemoryFromFlipper(){
   if(!isConnected()){ addMessage("note", "Connect the Flipper first."); return; }
-  captureBuffer = "";
-  addMessage("note", "Reading memory from the Flipper…");
-  await sendCommand("storage read /ext/dai/memory.txt");
-  await sleep(1600);                                        // let the file stream back
-  const facts = parseFlipperMemoryRead(captureBuffer);
-  if(!facts.length){ addMessage("note", "No memory found on the Flipper (file missing or empty)."); return; }
-  setMemory(appendMemory(getMemory(), facts));
-  if($("setMemory")) $("setMemory").value = getMemory();
-  addMessage("note", "Loaded " + facts.length + " fact(s) from the Flipper into memory.");
+  memorySyncing = true;
+  try{
+    captureBuffer = "";
+    addMessage("note", "Reading memory from the Flipper…");
+    await sendCommand("storage read /ext/dai/memory.txt");
+    await sleep(1600);                                        // let the file stream back
+    const facts = parseFlipperMemoryRead(captureBuffer);
+    if(!facts.length){ addMessage("note", "No memory found on the Flipper (file missing or empty)."); return; }
+    setMemory(appendMemory(getMemory(), facts));
+    if($("setMemory")) $("setMemory").value = getMemory();
+    addMessage("note", "Loaded " + facts.length + " fact(s) from the Flipper into memory.");
+  }finally{ awaitingAuto = false; clearTimeout(autoTimer); memorySyncing = false; }
 }
 
 // If a command produces no reply, the device probably isn't speaking raw text
@@ -1487,6 +1502,7 @@ function scheduleNoResponseHint(){
 // ---- Optional hands-free loop: auto-send device output to the AI ----
 let awaitingAuto = false;   // a command was sent and we're waiting for its output
 let autoTimer = null;       // debounce: fire once output goes quiet
+let memorySyncing = false;  // suppress auto-send while syncing memory to/from the Flipper
 // Cached so we don't re-read + JSON.parse localStorage on every inbound packet.
 let autoSendCached = false;
 function refreshAutoSendCache(){ autoSendCached = getSettings().autoSendOutput; }
@@ -1513,7 +1529,7 @@ function ingestText(text){
   termAppend(text, "rx");
   captureBuffer = appendCapture(captureBuffer, text);
   // Debounce: once output has been quiet for ~1.2s, hand it to the assistant.
-  if(awaitingAuto && autoSendEnabled()){
+  if(awaitingAuto && autoSendEnabled() && !memorySyncing){
     clearTimeout(autoTimer);
     autoTimer = setTimeout(fireAutoSend, 1200);
   }
@@ -1628,10 +1644,7 @@ async function runAiTurn(){
       }
       if(thinking) thinking.remove();
       if(!reply){ addMessage("error", "Puter AI returned an empty response."); return; }
-      const clean = afterReplyClean(reply);
-      conversation.push({ role:"assistant", content:clean });
-      addMessage("assistant", clean);
-      speak(pronounceForSpeech(stripRunLines(clean)));
+      renderAndSpeak(reply, false);
       return;
     }
 
@@ -1681,12 +1694,9 @@ async function runAiTurn(){
     }
 
     if(!reply){ addMessage("error", "The AI returned an empty response."); return; }
-    // Streaming already persisted memory + rendered a cleaned bubble; other
-    // paths clean + persist here.
-    if(!rendered) reply = afterReplyClean(reply);
-    conversation.push({ role:"assistant", content:reply });
-    if(!rendered) addMessage("assistant", reply);
-    speak(pronounceForSpeech(stripRunLines(reply)));   // read the prose aloud (not raw commands)
+    // One place persists memory + renders/speaks; streaming passes rendered=true
+    // (its bubble was already drawn cleaned by consumeStream).
+    renderAndSpeak(reply, rendered);
   }catch(err){
     if(thinking) thinking.remove();
     addMessage("error", "Request failed: " + (err && err.message ? err.message : err) +
@@ -1728,9 +1738,10 @@ async function consumeStream(res){
   if(buf.trim()) pump("\n\n");
   const out = full.trim() ? full : "";   // whitespace-only = nothing usable
   if(!out){ bubble.finish(""); return ""; }
-  const clean = afterReplyClean(out);    // persist REMEMBER: facts, strip them from view
-  bubble.finish(clean);                  // re-render with Run buttons, cleaned
-  return clean;
+  // Render the bubble cleaned (REMEMBER: lines removed; drops the bubble if the
+  // reply was memory-only). Persisting happens once, in the caller.
+  bubble.finish(extractMemories(out).text);
+  return out;                            // raw — caller persists memory + speaks
 }
 
 // A chat bubble that can be updated as tokens arrive, then finalized.
@@ -2020,6 +2031,7 @@ function deleteSelectedProvider(){
 }
 // Full backup: settings (persona/mode/voice/device) + key sets + memory.
 function exportProviders(){
+  if($("setMemory")) setMemory($("setMemory").value);   // capture unsaved edits in the box
   const backup = {
     dailite_settings: getSettings(),
     dailite_providers: getProviders(),
@@ -2051,6 +2063,8 @@ function importProvidersFile(file){
       if(parsed && parsed.dailite_settings && typeof parsed.dailite_settings === "object"){
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalizeSettings(parsed.dailite_settings)));
         notes.push("settings");
+        activeProfile = getActiveProfile(getSettings());
+        refreshAutoSendCache(); updateModeUI(); updateDeviceLabel();   // reflect restored state
       }
       openSettings();   // repopulate the form + connections from the restored data
       $("modelHint").textContent = "Imported " + notes.join(" + ") + ".";
@@ -2408,7 +2422,7 @@ function wire(){
   $("personaDefault").addEventListener("click", () => { $("setPersona").value = personaForMode(getSettings().mode); });
   $("easySetup").addEventListener("click", easySetup);
   $("modeBtn").addEventListener("click", () => setMode(getSettings().mode === "dai" ? "lite" : "dai"));
-  $("memoryClear").addEventListener("click", () => { $("setMemory").value = ""; });
+  $("memoryClear").addEventListener("click", () => { $("setMemory").value = ""; setMemory(""); renderConnections(); });
   $("memoryToFlipper").addEventListener("click", () => { setMemory($("setMemory").value); saveMemoryToFlipper(); });
   $("memoryFromFlipper").addEventListener("click", loadMemoryFromFlipper);
   // OS voices load asynchronously; refresh the picker when they arrive.

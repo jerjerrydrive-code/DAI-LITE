@@ -519,6 +519,16 @@ test("describeConnections singularizes one memory fact and shows disconnected", 
   assert.equal(rows.find(r => r.key === "device").ok, false);
 });
 
+test("describeConnections flags neural voice as not-ok until URL+key are set", () => {
+  const missing = D.describeConnections({ baseUrl: "x", voice: { engine: "neural" }, mode: "lite" }, {});
+  assert.equal(missing.find(r => r.key === "voice").ok, false);
+  assert.match(missing.find(r => r.key === "voice").detail, /add TTS/i);
+  const ready = D.describeConnections({ baseUrl: "x", voice: { engine: "neural", ttsBaseUrl: "u", ttsKey: "k" }, mode: "lite" }, {});
+  assert.equal(ready.find(r => r.key === "voice").ok, true);
+  // device + puter are always ok
+  assert.equal(D.describeConnections({ voice: { engine: "puter" } }, {}).find(r => r.key === "voice").ok, true);
+});
+
 /* ========================================================================
    Modes + memory
    ======================================================================== */
