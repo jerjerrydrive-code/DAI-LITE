@@ -351,6 +351,11 @@ Type a command below or let the assistant propose one.
     </label>
 
     <label class="check">
+      <input type="checkbox" id="setHaptic" />
+      <span>Buzz the Flipper when a command runs (haptic acknowledgment).</span>
+    </label>
+
+    <label class="check">
       <input type="checkbox" id="setAutoSend" />
       <span>Auto-send device output back to the assistant after each Run (hands-free loop). Off = tap “→ AI” yourself.</span>
     </label>
@@ -658,6 +663,7 @@ function normalizeSettings(raw){
     connection:    s.connection === "wifi" ? "wifi" : "ble",
     wsUrl:         s.wsUrl || "",
     autoSendOutput: !!s.autoSendOutput,
+    hapticAck:     !!s.hapticAck,           // buzz the Flipper when a command runs
     streaming:     s.streaming !== false,   // on by default; replies appear as they generate
     mode:          s.mode === "dai" ? "dai" : "lite",   // Dai companion vs Lite Flipper co-pilot
     persona:       s.persona || "",         // custom system prompt; stored only in this browser
@@ -1398,6 +1404,7 @@ function sendCommand(command){
     try{
       ws.send(command + p.lineEnding);
       termLine("> " + command, "cmd");
+      maybeHaptic();
       return Promise.resolve(true);
     }catch(err){
       termLine("Send failed: " + (err && err.message ? err.message : err), "err");
@@ -1425,6 +1432,7 @@ function sendCommand(command){
         await sleep(12);              // small gap so the firmware keeps up
       }
       termLine("> " + command, "cmd");
+      maybeHaptic();
       scheduleNoResponseHint();       // warn if the device never replies (RPC firmware)
       return true;
     }catch(err){
@@ -1485,6 +1493,18 @@ async function loadMemoryFromFlipper(){
     if($("setMemory")) $("setMemory").value = getMemory();
     addMessage("note", "Loaded " + facts.length + " fact(s) from the Flipper into memory.");
   }finally{ awaitingAuto = false; clearTimeout(autoTimer); memorySyncing = false; }
+}
+
+// Optional: a quick Flipper buzz to acknowledge a command ran. Uses sendRaw
+// (no echo, no auto-send hook) so it can't loop, and is gated to the Flipper.
+let ackBusy = false;
+async function maybeHaptic(){
+  if(ackBusy || memorySyncing) return;
+  if(!getSettings().hapticAck) return;
+  if(!activeProfile || activeProfile.key !== "flipper") return;
+  ackBusy = true;
+  try{ await sendRaw("vibro 1\r"); await sleep(120); await sendRaw("vibro 0\r"); }
+  finally{ ackBusy = false; }
 }
 
 // If a command produces no reply, the device probably isn't speaking raw text
@@ -2170,6 +2190,7 @@ function openSettings(){
   $("setWsUrl").value = s.wsUrl;
   $("setAutoSend").checked = s.autoSendOutput;
   $("setStreaming").checked = s.streaming;
+  $("setHaptic").checked = s.hapticAck;
   $("setPersona").value = s.persona;
   $("setMemory").value = getMemory();
   // Voice fields
@@ -2208,6 +2229,7 @@ function saveSettings(){
     connection: $("setConnection").value,
     wsUrl:      $("setWsUrl").value.trim(),
     autoSendOutput: $("setAutoSend").checked,
+    hapticAck: $("setHaptic").checked,
     streaming: $("setStreaming").checked,
     mode: getSettings().mode,                 // preserve the top-bar mode toggle
     persona: $("setPersona").value.trim(),

@@ -705,7 +705,7 @@ test("provider presets have the exact spec Base URLs", () => {
 test("normalizeSettings shapes bad / partial input safely (defaults to auto-detect)", () => {
   const defaults = {
     baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
-    connection: "ble", wsUrl: "", autoSendOutput: false, streaming: true, mode: "lite", persona: "",
+    connection: "ble", wsUrl: "", autoSendOutput: false, hapticAck: false, streaming: true, mode: "lite", persona: "",
     voice: {
       engine: "device", deviceVoice: "", style: "natural",
       ttsBaseUrl: "", ttsKey: "", ttsModel: "gpt-4o-mini-tts", ttsVoice: "nova",

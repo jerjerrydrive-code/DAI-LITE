@@ -59,7 +59,7 @@ Give the *device* a mic + speaker (the Flipper has neither).
 2. Extend the bridge firmware: capture voice, play TTS, relay to the Flipper.
 
 ## Phase 7 — Flipper feedback + polish
-1. Flipper haptic/LED "ack" when a command runs (buzz/blink).
+1. Flipper haptic/LED "ack" when a command runs (buzz/blink).  ✅ buzz built
 2. Incremental (sentence-by-sentence) speech for lower latency.
 3. Ongoing review passes + hardware verification.
 
