@@ -450,6 +450,18 @@ test("provider library: upsert adds then replaces by name", () => {
   assert.equal(D.findProvider(list, "A").apiKey, "k1-new");
 });
 
+test("mergeProviders imports arrays and {dailite_providers} and upserts by name", () => {
+  const existing = [{ name: "A", apiKey: "old" }];
+  let r = D.mergeProviders(existing, { dailite_providers: [{ name: "A", apiKey: "new" }, { name: "B", apiKey: "k" }] });
+  assert.equal(r.count, 2);
+  assert.deepEqual(r.list.map(p => p.name), ["A", "B"]);
+  assert.equal(D.findProvider(r.list, "A").apiKey, "new");   // replaced, not duplicated
+  // bare array + junk entries
+  r = D.mergeProviders([], [{ name: "X" }, null, { noName: 1 }]);
+  assert.deepEqual(r.list.map(p => p.name), ["X"]);
+  assert.equal(r.count, 1);
+});
+
 test("provider library: remove and find", () => {
   const list = [{ name: "A" }, { name: "B" }];
   assert.deepEqual(D.removeProvider(list, "A").map((p) => p.name), ["B"]);

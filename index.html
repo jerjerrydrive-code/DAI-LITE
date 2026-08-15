@@ -304,6 +304,12 @@ Type a command below or let the assistant propose one.
       <input id="providerName" placeholder="Name this setup, e.g. OpenRouter-main" spellcheck="false" />
       <button id="providerSave" class="btn accent" title="Save the current Base URL + key + model under this name">Save key set</button>
     </div>
+    <div class="inline" style="margin-top:8px">
+      <button id="providerExport" class="btn" title="Download all saved key sets as a backup file">⬇ Export keys</button>
+      <button id="providerImport" class="btn" title="Restore key sets from a backup file">⬆ Import keys</button>
+      <input id="providerImportFile" type="file" accept="application/json,.json" style="display:none" />
+    </div>
+    <div class="hint">Back up your key sets to a file so a re-download or new URL can’t lose them. localStorage is tied to the exact page address.</div>
 
     <label>Base URL</label>
     <input id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" spellcheck="false" />
@@ -918,6 +924,16 @@ function upsertProvider(list, entry){
 }
 function removeProvider(list, name){ return (list || []).filter(p => p && p.name !== name); }
 function findProvider(list, name){ return (list || []).find(p => p && p.name === name) || null; }
+/* Merge imported key sets into the existing list (upsert by name). Accepts a
+   bare array, {dailite_providers:[…]}, or {providers:[…]}. */
+function mergeProviders(existing, imported){
+  const incoming = Array.isArray(imported) ? imported
+    : (imported && (imported.dailite_providers || imported.providers)) || [];
+  let list = (existing || []).slice();
+  let count = 0;
+  for(const p of incoming){ if(p && p.name){ list = upsertProvider(list, p); count++; } }
+  return { list, count };
+}
 
 /* ---- Auto-detection helpers -------------------------------------------------
    The web can't silently scan for devices — every connection goes through the
@@ -995,7 +1011,7 @@ if(typeof globalThis !== "undefined"){
     lineEndingFromCode, normalizeSettings, getActiveProfile, profileIsComplete,
     candidateProfiles, buildRequestOptions, matchProfileByServices,
     appendCapture, formatDeviceOutput,
-    resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider,
+    resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider, mergeProviders,
     navigateHistory, pushHistory,
     normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
@@ -1742,6 +1758,29 @@ function deleteSelectedProvider(){
   populateProviderSelect();
   $("modelHint").textContent = "Deleted “" + name + "”.";
 }
+function exportProviders(){
+  const list = getProviders();
+  const blob = new Blob([JSON.stringify({ dailite_providers:list }, null, 2)], { type:"application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "dai-lite-keys.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  $("modelHint").textContent = "Exported " + list.length + " key set(s) to dai-lite-keys.json.";
+}
+function importProvidersFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const { list, count } = mergeProviders(getProviders(), JSON.parse(reader.result));
+      setProviders(list);
+      populateProviderSelect();
+      $("modelHint").textContent = "Imported " + count + " key set(s). Pick one above and Load.";
+    }catch(e){ $("modelHint").textContent = "Import failed — not a valid backup file."; }
+  };
+  reader.readAsText(file);
+}
 function toggleKeyReveal(){
   const inp = $("setApiKey");
   inp.type = (inp.type === "password") ? "text" : "password";
@@ -2035,6 +2074,9 @@ function wire(){
   $("providerSave").addEventListener("click", saveCurrentProvider);
   $("providerLoad").addEventListener("click", loadSelectedProvider);
   $("providerDelete").addEventListener("click", deleteSelectedProvider);
+  $("providerExport").addEventListener("click", exportProviders);
+  $("providerImport").addEventListener("click", () => $("providerImportFile").click());
+  $("providerImportFile").addEventListener("change", e => { importProvidersFile(e.target.files[0]); e.target.value = ""; });
   $("setConnection").addEventListener("change", toggleWifiFields);
   $("voiceEngine").addEventListener("change", toggleVoicePanels);
   $("voiceTest").addEventListener("click", testVoice);
