@@ -987,6 +987,25 @@ function parseFlipperMemoryRead(raw){
   return out;
 }
 
+/* Split text into sentence-sized chunks so the Web Speech API doesn't cut off
+   long replies (Chrome silently stops after a long single utterance). */
+function splitSpeech(text, maxLen){
+  maxLen = maxLen || 200;
+  const parts = [];
+  for(const sentence of String(text == null ? "" : text).split(/(?<=[.!?])\s+/)){
+    let s = sentence.trim();
+    if(!s) continue;
+    while(s.length > maxLen){
+      let cut = s.lastIndexOf(" ", maxLen);
+      if(cut <= 0) cut = maxLen;
+      parts.push(s.slice(0, cut).trim());
+      s = s.slice(cut).trim();
+    }
+    if(s) parts.push(s);
+  }
+  return parts;
+}
+
 /* Spell the brand phonetically so voices say "daylight", not "die-light". */
 function pronounceForSpeech(text){
   return String(text == null ? "" : text)
@@ -1171,7 +1190,7 @@ if(typeof globalThis !== "undefined"){
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech
+    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech
   };
 }
 
@@ -1956,15 +1975,16 @@ async function speakNeural(text, v){
 function speakDevice(text, v){
   if(!synth) return;
   synth.cancel();
-  const u = new SpeechSynthesisUtterance(text);
   const pr = styleToProsody(v && v.style);
-  u.rate = pr.rate; u.pitch = pr.pitch;
   const want = v && v.deviceVoice;
-  if(want){
-    const match = (synth.getVoices() || []).find(x => x.voiceURI === want || x.name === want);
-    if(match) u.voice = match;
+  const voice = want ? (synth.getVoices() || []).find(x => x.voiceURI === want || x.name === want) : null;
+  // Queue one utterance per sentence-chunk so long replies aren't truncated.
+  for(const part of splitSpeech(text)){
+    const u = new SpeechSynthesisUtterance(part);
+    u.rate = pr.rate; u.pitch = pr.pitch;
+    if(voice) u.voice = voice;
+    synth.speak(u);
   }
-  synth.speak(u);
 }
 function setupRecognition(){
   if(!SR) return;

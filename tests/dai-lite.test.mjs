@@ -229,6 +229,16 @@ test("stripRunLines removes commands and collapses whitespace for TTS", () => {
   assert.equal(spoken, "Let me check. Done.");
 });
 
+test("splitSpeech breaks into sentences and caps long runs", () => {
+  assert.deepEqual(D.splitSpeech("One. Two! Three?"), ["One.", "Two!", "Three?"]);
+  const long = "word ".repeat(100).trim();               // 500 chars, no sentence breaks
+  const parts = D.splitSpeech(long, 200);
+  assert.ok(parts.length >= 3);
+  assert.ok(parts.every(p => p.length <= 200));
+  assert.equal(parts.join(" "), long);                   // lossless
+  assert.deepEqual(D.splitSpeech(""), []);
+});
+
 test("pronounceForSpeech makes the brand say 'daylight'", () => {
   assert.equal(D.pronounceForSpeech("Hi, DAI-LITE here."), "Hi, Daylight here.");
   assert.equal(D.pronounceForSpeech("dai-lite / DAI LITE / Dai"), "Daylight / Daylight / Day");
