@@ -693,6 +693,14 @@ test("buildSystemPrompt includes the Flipper cheat-sheet only for Flipper", () =
 /* ========================================================================
    Provider presets match the spec
    ======================================================================== */
+test("QUICK_COMMANDS are safe, read-only-ish strings", () => {
+  assert.ok(Array.isArray(D.QUICK_COMMANDS) && D.QUICK_COMMANDS.length > 0);
+  assert.ok(D.QUICK_COMMANDS.every(c => typeof c === "string" && c.trim().length));
+  assert.ok(D.QUICK_COMMANDS.includes("device_info"));
+  // nothing destructive in the one-tap set
+  assert.ok(!D.QUICK_COMMANDS.some(c => /\b(remove|delete|format|write|subghz tx)\b/i.test(c)));
+});
+
 test("provider presets have the exact spec Base URLs", () => {
   assert.equal(D.PRESETS.openrouter.baseUrl, "https://openrouter.ai/api/v1");
   assert.equal(D.PRESETS.nvidia.baseUrl, "https://integrate.api.nvidia.com/v1");
