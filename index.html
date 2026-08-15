@@ -279,7 +279,7 @@ Type a command below or let the assistant propose one.
 
     <!-- RIGHT: AI voice / chat conversation -->
     <section class="panel">
-      <div class="head"><span class="tag ai">Assistant</span><span class="spacer" style="flex:1"></span><button id="newChat" class="btn icon" title="Start a new conversation (keeps memory)" style="padding:3px 8px;font-size:11px">New chat</button></div>
+      <div class="head"><span class="tag ai">Assistant</span><span id="modeTag" class="hint" style="text-transform:none;letter-spacing:0"></span><span class="spacer" style="flex:1"></span><button id="newChat" class="btn icon" title="Start a new conversation (keeps memory)" style="padding:3px 8px;font-size:11px">New chat</button></div>
       <div id="chat"></div>
       <div class="chatbar">
         <button id="mic" class="btn icon" title="Hold to talk">🎙️</button>
@@ -1261,6 +1261,8 @@ function updateModeUI(){
   b.classList.toggle("on", dai);
   b.title = dai ? "Dai mode — companion + memory. Tap for Lite."
                 : "Lite mode — Flipper coding co-pilot. Tap for Dai.";
+  const tag = $("modeTag");
+  if(tag) tag.textContent = dai ? "· Dai — companion" : "· Lite — Flipper co-pilot";
 }
 
 /* ---- Terminal panel ---- */
