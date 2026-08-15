@@ -1107,7 +1107,7 @@ function scheduleNoResponseHint(){
   setTimeout(() => {
     if(!gotAnyRx && !bleHintShown && txChar){
       bleHintShown = true;
-      termLine("No reply received. Note: stock Flipper firmware uses RPC (not a raw text CLI) over Bluetooth, so plain-text commands may get no response. See README → 'Why the Flipper may not respond' for the ESP32 / serial-bridge options.", "sys");
+      termLine("No reply received. Stock Flipper firmware uses RPC (not a raw text CLI) over Bluetooth, so plain-text commands may get no response — this is expected, not a bug. To get the real CLI, use the ESP32-S3 bridge (see firmware/README.md → 'Why the Flipper may not respond').", "sys");
     }
   }, 2600);
 }
