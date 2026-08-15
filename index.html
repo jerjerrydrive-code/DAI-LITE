@@ -1019,6 +1019,132 @@ function pronounceForSpeech(text){
     .replace(/\bDAI\b/gi, "Day");
 }
 
+/* ---- Flipper native RPC (protobuf) ---------------------------------------
+   Stock Flipper BLE is an RPC transport, NOT a wireless CLI: it carries
+   varint-delimited protobuf `PB.Main` messages. Field numbers below come from
+   the upstream flipperzero-protobuf definitions (flipper.proto / system.proto /
+   storage.proto), not guesswork:
+     Main: command_id=1, command_status=2, has_next=3
+     oneof content: empty=4, ping_request=5, ping_response=6,
+                    storage_list_request=7, storage_read_request=9,
+                    stop_session=19, device_info_request=32,
+                    device_info_response=33, audiovisual_alert=38
+   We hand-roll the few varint/length-delimited primitives we need so the app
+   stays a single dependency-free file. */
+const RPC_TAG = {
+  EMPTY:4, PING_REQ:5, PING_RESP:6, STORAGE_LIST_REQ:7, STORAGE_LIST_RESP:8,
+  STORAGE_READ_REQ:9, STORAGE_READ_RESP:10, STOP_SESSION:19,
+  DEVICE_INFO_REQ:32, DEVICE_INFO_RESP:33, ALERT_REQ:38
+};
+
+/* Encode an unsigned integer as a protobuf varint. */
+function pbVarint(n){
+  const out = [];
+  let v = n >>> 0;
+  do { let b = v & 0x7f; v >>>= 7; if(v) b |= 0x80; out.push(b); } while(v);
+  return out;
+}
+/* Read a varint at `pos`; returns {value, pos} (pos = next byte). */
+function pbReadVarint(bytes, pos){
+  let value = 0, shift = 0, p = pos;
+  while(p < bytes.length){
+    const b = bytes[p++];
+    value += (b & 0x7f) * Math.pow(2, shift);
+    if(!(b & 0x80)) break;
+    shift += 7;
+  }
+  return { value, pos:p };
+}
+/* A length-delimited field (wire type 2): key, length, payload. */
+function pbLenField(fieldNum, payload){
+  const body = payload || [];
+  return [...pbVarint((fieldNum << 3) | 2), ...pbVarint(body.length), ...body];
+}
+/* A varint field (wire type 0). */
+function pbVarintField(fieldNum, value){
+  return [...pbVarint((fieldNum << 3) | 0), ...pbVarint(value)];
+}
+/* A UTF-8 string field. */
+function pbStringField(fieldNum, str){
+  return pbLenField(fieldNum, Array.from(enc.encode(String(str == null ? "" : str))));
+}
+
+/* Wrap a Main message body in the varint length prefix Flipper expects. */
+function rpcFrame(mainBytes){
+  return new Uint8Array([...pbVarint(mainBytes.length), ...mainBytes]);
+}
+/* Build a PB.Main carrying one request. `inner` is the encoded sub-message. */
+function rpcMain(commandId, contentTag, inner){
+  const body = [...pbVarintField(1, commandId), ...pbLenField(contentTag, inner || [])];
+  return rpcFrame(body);
+}
+
+/* Ready-made requests (the vertical slice: ping -> identity -> storage). */
+function rpcPing(commandId){ return rpcMain(commandId, RPC_TAG.PING_REQ, []); }
+function rpcDeviceInfo(commandId){ return rpcMain(commandId, RPC_TAG.DEVICE_INFO_REQ, []); }
+function rpcAlert(commandId){ return rpcMain(commandId, RPC_TAG.ALERT_REQ, []); }        // buzz/LED
+function rpcStopSession(commandId){ return rpcMain(commandId, RPC_TAG.STOP_SESSION, []); }
+function rpcStorageList(commandId, path){
+  return rpcMain(commandId, RPC_TAG.STORAGE_LIST_REQ, pbStringField(1, path));
+}
+function rpcStorageRead(commandId, path){
+  return rpcMain(commandId, RPC_TAG.STORAGE_READ_REQ, pbStringField(1, path));
+}
+
+/* Split a byte stream into complete varint-delimited frames; returns the
+   leftover bytes so partial reads can be carried to the next chunk. */
+function rpcSplitFrames(bytes){
+  const frames = [];
+  let pos = 0;
+  const arr = bytes || [];
+  while(pos < arr.length){
+    const { value:len, pos:after } = pbReadVarint(arr, pos);
+    if(!len || after + len > arr.length) break;      // incomplete — wait for more
+    frames.push(arr.slice(after, after + len));
+    pos = after + len;
+  }
+  return { frames, rest: arr.slice(pos) };
+}
+
+/* Decode a PB.Main envelope into its header fields plus the raw content. */
+function rpcParseMain(bytes){
+  const out = { commandId:0, status:0, hasNext:false, tag:0, content:[] };
+  let pos = 0;
+  const arr = bytes || [];
+  while(pos < arr.length){
+    const k = pbReadVarint(arr, pos); pos = k.pos;
+    const field = k.value >>> 3, wire = k.value & 7;
+    if(wire === 0){
+      const v = pbReadVarint(arr, pos); pos = v.pos;
+      if(field === 1) out.commandId = v.value;
+      else if(field === 2) out.status = v.value;
+      else if(field === 3) out.hasNext = !!v.value;
+    }else if(wire === 2){
+      const l = pbReadVarint(arr, pos); pos = l.pos;
+      const payload = arr.slice(pos, pos + l.value); pos += l.value;
+      out.tag = field; out.content = payload;      // the oneof content
+    }else break;                                   // unsupported wire type
+  }
+  return out;
+}
+
+/* DeviceInfoResponse is a repeated key/value pair — decode one message. */
+function rpcParseKeyValue(bytes){
+  const out = { key:"", value:"" };
+  const dec = new TextDecoder();
+  let pos = 0;
+  const arr = bytes || [];
+  while(pos < arr.length){
+    const k = pbReadVarint(arr, pos); pos = k.pos;
+    const field = k.value >>> 3, wire = k.value & 7;
+    if(wire !== 2) break;
+    const l = pbReadVarint(arr, pos); pos = l.pos;
+    const s = dec.decode(new Uint8Array(arr.slice(pos, pos + l.value))); pos += l.value;
+    if(field === 1) out.key = s; else if(field === 2) out.value = s;
+  }
+  return out;
+}
+
 /* ---- Terminal command history ----
    Shell-style Up/Down recall. `index` equals history.length when the user is on
    the fresh (empty) line; older entries are toward index 0. */
@@ -1192,6 +1318,9 @@ if(typeof globalThis !== "undefined"){
     resolveModelsUrl, parseModels, upsertProvider, removeProvider, findProvider, mergeProviders,
     providerName, describeConnections,
     navigateHistory, pushHistory,
+    RPC_TAG, pbVarint, pbReadVarint, pbLenField, pbVarintField, pbStringField,
+    rpcFrame, rpcMain, rpcPing, rpcDeviceInfo, rpcAlert, rpcStopSession,
+    rpcStorageList, rpcStorageRead, rpcSplitFrames, rpcParseMain, rpcParseKeyValue,
     normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, LITE_PERSONA, DAI_PERSONA, personaForMode,
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,

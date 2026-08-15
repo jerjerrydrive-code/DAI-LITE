@@ -500,6 +500,78 @@ test("provider library: remove and find", () => {
 });
 
 /* ========================================================================
+   Flipper native RPC (protobuf) — field numbers from flipperzero-protobuf
+   ======================================================================== */
+test("pbVarint encodes single- and multi-byte values", () => {
+  assert.deepEqual(D.pbVarint(0), [0x00]);
+  assert.deepEqual(D.pbVarint(1), [0x01]);
+  assert.deepEqual(D.pbVarint(127), [0x7f]);
+  assert.deepEqual(D.pbVarint(128), [0x80, 0x01]);
+  assert.deepEqual(D.pbVarint(300), [0xac, 0x02]);
+});
+
+test("pbReadVarint round-trips and reports the next position", () => {
+  for (const n of [0, 1, 127, 128, 300, 4096]) {
+    const r = D.pbReadVarint(D.pbVarint(n), 0);
+    assert.equal(r.value, n);
+    assert.equal(r.pos, D.pbVarint(n).length);
+  }
+});
+
+test("rpcPing encodes the exact PB.Main frame Flipper expects", () => {
+  // Main{ command_id=1, system_ping_request(field 5)=PingRequest{} }
+  //  0x08 0x01  -> field1 varint 1
+  //  0x2A 0x00  -> field5 (5<<3|2), length 0
+  // framed with a leading varint length (4)
+  assert.deepEqual([...D.rpcPing(1)], [0x04, 0x08, 0x01, 0x2a, 0x00]);
+});
+
+test("rpcDeviceInfo uses field 32 (two-byte key)", () => {
+  // (32<<3)|2 = 258 -> varint 0x82 0x02
+  assert.deepEqual([...D.rpcDeviceInfo(2)], [0x05, 0x08, 0x02, 0x82, 0x02, 0x00]);
+});
+
+test("rpcStorageList embeds the path as a nested string field", () => {
+  const frame = [...D.rpcStorageList(3, "/ext")];
+  const body = frame.slice(1);
+  assert.equal(frame[0], body.length);                 // length prefix matches
+  assert.deepEqual(body.slice(0, 2), [0x08, 0x03]);    // command_id = 3
+  assert.deepEqual(body.slice(2, 4), [0x3a, 0x06]);    // field 7, len 6
+  assert.deepEqual(body.slice(4, 6), [0x0a, 0x04]);    // inner field 1, len 4
+  assert.equal(Buffer.from(body.slice(6)).toString(), "/ext");
+});
+
+test("rpcSplitFrames returns whole frames and keeps a partial tail", () => {
+  const a = [...D.rpcPing(1)], b = [...D.rpcDeviceInfo(2)];
+  const stream = [...a, ...b.slice(0, 3)];             // second frame incomplete
+  const r = D.rpcSplitFrames(stream);
+  assert.equal(r.frames.length, 1);
+  assert.deepEqual(r.frames[0], a.slice(1));
+  assert.deepEqual(r.rest, b.slice(0, 3));
+});
+
+test("rpcParseMain decodes header fields and the content tag", () => {
+  const framed = [...D.rpcPing(7)];
+  const main = D.rpcParseMain(framed.slice(1));
+  assert.equal(main.commandId, 7);
+  assert.equal(main.tag, D.RPC_TAG.PING_REQ);
+  assert.equal(main.status, 0);
+  assert.equal(main.hasNext, false);
+});
+
+test("rpcParseKeyValue decodes a DeviceInfoResponse pair", () => {
+  const inner = [...D.pbStringField(1, "hardware_model"), ...D.pbStringField(2, "Flipper")];
+  assert.deepEqual(D.rpcParseKeyValue(inner), { key: "hardware_model", value: "Flipper" });
+});
+
+test("a ping frame round-trips through split + parse", () => {
+  const r = D.rpcSplitFrames([...D.rpcPing(9)]);
+  assert.equal(r.frames.length, 1);
+  assert.equal(D.rpcParseMain(r.frames[0]).commandId, 9);
+  assert.deepEqual(r.rest, []);
+});
+
+/* ========================================================================
    Connections dashboard
    ======================================================================== */
 test("providerName recognizes the presets and falls back to host", () => {
