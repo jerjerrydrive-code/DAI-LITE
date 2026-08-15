@@ -874,6 +874,13 @@ function buildHeaders(settings, origin){
   return h;
 }
 
+/* Normalize a WebSocket URL: add ws:// if the user omitted the scheme. */
+function normalizeWsUrl(url){
+  const u = String(url == null ? "" : url).trim();
+  if(!u) return "";
+  return /^wss?:\/\//i.test(u) ? u : "ws://" + u;
+}
+
 /* Join a Base URL to the chat/completions path without doubling slashes. */
 function resolveChatUrl(baseUrl){
   return String(baseUrl || "").replace(/\/+$/,"") + "/chat/completions";
@@ -1164,7 +1171,7 @@ if(typeof globalThis !== "undefined"){
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech
+    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech
   };
 }
 
@@ -1342,7 +1349,7 @@ function onDisconnected(){
 function connectWifi(){
   if(typeof WebSocket === "undefined"){ termLine("WebSocket isn't available in this browser.", "err"); return; }
   const s = getSettings();
-  const url = s.wsUrl;
+  const url = normalizeWsUrl(s.wsUrl);
   if(!url){ termLine("Set a WebSocket URL (ws://IP:port) in ⚙️ Settings → Connection.", "err"); return; }
   activeProfile = getActiveProfile(s);   // line ending + system prompt still follow the device type
   try{

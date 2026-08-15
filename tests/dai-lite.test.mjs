@@ -280,6 +280,14 @@ test("resolveChatUrl joins the path without doubling slashes", () => {
   assert.equal(D.resolveChatUrl("http://LAN-IP:11434/v1///"), "http://LAN-IP:11434/v1/chat/completions");
 });
 
+test("normalizeWsUrl adds ws:// only when the scheme is missing", () => {
+  assert.equal(D.normalizeWsUrl("192.168.1.5:8765"), "ws://192.168.1.5:8765");
+  assert.equal(D.normalizeWsUrl("ws://host:81"), "ws://host:81");
+  assert.equal(D.normalizeWsUrl("wss://host:81"), "wss://host:81");
+  assert.equal(D.normalizeWsUrl("  10.0.0.2:81  "), "ws://10.0.0.2:81");
+  assert.equal(D.normalizeWsUrl(""), "");
+});
+
 test("buildHeaders sets Authorization only when a key is present", () => {
   assert.equal(D.buildHeaders({ apiKey: "sk-123", baseUrl: "x" }).Authorization, "Bearer sk-123");
   assert.equal(D.buildHeaders({ apiKey: "", baseUrl: "x" }).Authorization, undefined);
