@@ -2185,6 +2185,11 @@ function renderConnections(){
     const lab = document.createElement("span"); lab.className = "conn-label"; lab.textContent = it.label;
     const det = document.createElement("span"); det.className = "conn-detail"; det.textContent = it.detail;
     row.append(dot, lab, det);
+    if(!it.ok && it.key === "ai"){    // one-tap fix for the most common gap
+      row.style.cursor = "pointer";
+      row.title = "Tap to run Easy setup";
+      row.addEventListener("click", easySetup);
+    }
     box.appendChild(row);
   }
 }
