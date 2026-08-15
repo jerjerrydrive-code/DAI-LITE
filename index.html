@@ -283,12 +283,16 @@ Type a command below or let the assistant propose one.
   <div class="modal">
     <h2><span class="accent">Settings</span></h2>
 
+    <button id="easySetup" class="btn primary" style="width:100%;padding:12px" title="Set up free AI + voice with no keys">⚡ Easy setup — free AI &amp; voice, no keys</button>
+    <div class="hint" style="margin-top:6px">One tap configures Puter (free, keyless) for both the assistant and the voice. A quick one-time Puter sign-in may appear. You can still set your own provider below.</div>
+
     <!-- ---- AI provider ---- -->
-    <div class="section">AI provider</div>
-    <p>Any OpenAI-compatible <code>/chat/completions</code> endpoint. Keys are stored only in this browser (localStorage) — never sent anywhere but the provider you choose.</p>
+    <div class="section" style="margin-top:16px">AI provider</div>
+    <p>Any OpenAI-compatible <code>/chat/completions</code> endpoint, or Puter (free, no key). Keys are stored only in this browser (localStorage).</p>
 
     <label>Presets</label>
     <div class="presets">
+      <button class="btn accent" data-preset="puter">Puter (free)</button>
       <button class="btn" data-preset="openrouter">OpenRouter</button>
       <button class="btn" data-preset="nvidia">NVIDIA</button>
       <button class="btn" data-preset="ollama">Ollama (local)</button>
@@ -547,6 +551,7 @@ const DEVICE_PROFILES = {
 
 /* ---- OpenAI-compatible provider presets (Base URL + a sensible model) ---- */
 const PRESETS = {
+  puter:      { baseUrl:"puter",                              model:"gpt-4o-mini" }, // free, keyless via Puter SDK
   openrouter: { baseUrl:"https://openrouter.ai/api/v1",        model:"openai/gpt-4o-mini" },
   nvidia:     { baseUrl:"https://integrate.api.nvidia.com/v1", model:"meta/llama-3.1-70b-instruct" },
   // Ollama runs on your LAN and ignores the API key. Replace LAN-IP with your host.
@@ -874,6 +879,13 @@ function stripRunLines(text){
     .join(" ").replace(/\s+/g," ").trim();
 }
 
+/* Spell the brand phonetically so voices say "daylight", not "die-light". */
+function pronounceForSpeech(text){
+  return String(text == null ? "" : text)
+    .replace(/\bDAI[-\s]?LITE\b/gi, "Daylight")
+    .replace(/\bDAI\b/gi, "Day");
+}
+
 /* ---- Terminal command history ----
    Shell-style Up/Down recall. `index` equals history.length when the user is on
    the fresh (empty) line; older entries are toward index 0. */
@@ -1015,7 +1027,7 @@ if(typeof globalThis !== "undefined"){
     navigateHistory, pushHistory,
     normalizeVoice, TTS_VOICES, TTS_PRESETS, VOICE_PERSONAS, DEFAULT_PERSONA, resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines
+    resolveChatUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech
   };
 }
 
@@ -1402,6 +1414,25 @@ async function runAiTurn(){
     // Use the profile we actually detected on connect (falls back to the
     // settings default when not yet connected).
     const systemPrompt = buildSystemPrompt(activeProfile || getActiveProfile(s), s.persona);
+
+    // Free, keyless AI via the Puter SDK (baseUrl "puter").
+    if(/^\s*puter\b/i.test(s.baseUrl)){
+      let reply = "";
+      try{
+        reply = await puterChat([{ role:"system", content:systemPrompt }, ...conversation], s.model);
+      }catch(e){
+        if(thinking) thinking.remove();
+        addMessage("error", "Puter AI failed (" + (e && e.message ? e.message : e) + "). It needs an http(s):// page (not file://) and may ask you to sign in to Puter.");
+        return;
+      }
+      if(thinking) thinking.remove();
+      if(!reply){ addMessage("error", "Puter AI returned an empty response."); return; }
+      conversation.push({ role:"assistant", content:reply });
+      addMessage("assistant", reply);
+      speak(pronounceForSpeech(stripRunLines(reply)));
+      return;
+    }
+
     const origin = (typeof location !== "undefined") ? location.origin : "";
     const headers = buildHeaders(s, origin);
     if(wantStream) headers["Accept"] = "text/event-stream";
@@ -1450,7 +1481,7 @@ async function runAiTurn(){
     if(!reply){ addMessage("error", "The AI returned an empty response."); return; }
     conversation.push({ role:"assistant", content:reply });
     if(!rendered) addMessage("assistant", reply);
-    speak(stripRunLines(reply));                 // read the prose aloud (not raw commands)
+    speak(pronounceForSpeech(stripRunLines(reply)));   // read the prose aloud (not raw commands)
   }catch(err){
     if(thinking) thinking.remove();
     addMessage("error", "Request failed: " + (err && err.message ? err.message : err) +
@@ -1586,6 +1617,28 @@ function loadPuter(){
     document.head.appendChild(sc);
   });
   return puterLoading;
+}
+
+// Free, keyless chat through Puter. Returns the assistant text.
+async function puterChat(messages, model){
+  const puter = await loadPuter();
+  if(!(puter.ai && typeof puter.ai.chat === "function")) throw new Error("Puter chat unavailable");
+  const opts = {}; if(model) opts.model = model;
+  let resp;
+  try{ resp = await puter.ai.chat(messages, opts); }
+  catch(_){ resp = await puter.ai.chat(messages); }
+  // Puter's return shape varies by version — dig the text out defensively.
+  if(!resp) return "";
+  if(typeof resp === "string") return resp;
+  const m = resp.message;
+  if(m){
+    if(typeof m.content === "string") return m.content;
+    if(Array.isArray(m.content)) return m.content.map(c => (c && (c.text || c.content)) || "").join("");
+  }
+  if(typeof resp.text === "string") return resp.text;
+  if(typeof resp.content === "string") return resp.content;
+  if(resp.choices && resp.choices[0] && resp.choices[0].message) return resp.choices[0].message.content || "";
+  return "";
 }
 
 // Free realistic voices through Puter's keyless TTS.
@@ -1780,6 +1833,17 @@ function importProvidersFile(file){
     }catch(e){ $("modelHint").textContent = "Import failed — not a valid backup file."; }
   };
   reader.readAsText(file);
+}
+// One-tap: free AI + free voice via Puter, no keys.
+function easySetup(){
+  $("setBaseUrl").value = "puter";
+  $("setModel").value = "gpt-4o-mini";
+  $("setApiKey").value = "";
+  $("voiceEngine").value = "puter";
+  populatePuterVoices($("setPuterVoice") && $("setPuterVoice").value || "nova");
+  toggleVoicePanels();
+  saveSettings();   // persists and closes
+  addMessage("note", "⚡ Easy setup done — free AI + voice via Puter, no keys. A one-time Puter sign-in may pop up on first use. Connect a device whenever you're ready.");
 }
 function toggleKeyReveal(){
   const inp = $("setApiKey");
@@ -2093,6 +2157,7 @@ function wire(){
     });
   });
   $("personaDefault").addEventListener("click", () => { $("setPersona").value = DEFAULT_PERSONA; });
+  $("easySetup").addEventListener("click", easySetup);
   // OS voices load asynchronously; refresh the picker when they arrive.
   if(synth) synth.addEventListener("voiceschanged", () => populateDeviceVoices(getSettings().voice.deviceVoice));
   document.querySelectorAll("[data-preset]").forEach(btn => {

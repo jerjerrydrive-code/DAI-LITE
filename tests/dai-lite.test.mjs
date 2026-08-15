@@ -229,6 +229,16 @@ test("stripRunLines removes commands and collapses whitespace for TTS", () => {
   assert.equal(spoken, "Let me check. Done.");
 });
 
+test("pronounceForSpeech makes the brand say 'daylight'", () => {
+  assert.equal(D.pronounceForSpeech("Hi, DAI-LITE here."), "Hi, Daylight here.");
+  assert.equal(D.pronounceForSpeech("dai-lite / DAI LITE / Dai"), "Daylight / Daylight / Day");
+  assert.equal(D.pronounceForSpeech("the sundial is fine"), "the sundial is fine"); // no false match
+});
+
+test("Puter preset uses the keyless sentinel base URL", () => {
+  assert.equal(D.PRESETS.puter.baseUrl, "puter");
+});
+
 /* ========================================================================
    Device output -> AI (closing the loop)
    ======================================================================== */
