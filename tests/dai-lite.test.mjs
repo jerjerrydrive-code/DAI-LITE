@@ -505,6 +505,7 @@ test("styleToProsody returns sane rate/pitch and a natural default", () => {
 
 test("normalizeVoice coerces engine and fills defaults (Warm-woman persona seeded)", () => {
   assert.equal(D.normalizeVoice({ engine: "neural" }).engine, "neural");
+  assert.equal(D.normalizeVoice({ engine: "puter" }).engine, "puter");
   assert.equal(D.normalizeVoice({ engine: "bogus" }).engine, "device");
   const d = D.normalizeVoice(undefined);
   assert.equal(d.ttsVoice, "nova");

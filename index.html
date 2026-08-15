@@ -418,7 +418,8 @@ Type a command below or let the assistant propose one.
     <label>Voice engine</label>
     <select id="voiceEngine">
       <option value="device">Device voices (free, built-in)</option>
-      <option value="neural">Neural voices (realistic, needs TTS key)</option>
+      <option value="puter">Puter — free realistic voices, no key</option>
+      <option value="neural">Neural voices (your own TTS key / server)</option>
     </select>
 
     <div id="voiceDevicePanel">
@@ -432,6 +433,12 @@ Type a command below or let the assistant propose one.
         <option value="deep">Deep</option>
         <option value="expressive">Expressive</option>
       </select>
+    </div>
+
+    <div id="voicePuterPanel" style="display:none">
+      <div class="hint">Free realistic voices via Puter (no key). Loads the Puter SDK from js.puter.com on first use and sends reply text to Puter; it may ask for a quick sign-in. Won't work inside a locked-down/CSP sandbox.</div>
+      <label>Voice</label>
+      <select id="setPuterVoice"></select>
     </div>
 
     <div id="voiceNeuralPanel" style="display:none">
@@ -591,7 +598,7 @@ function lineEndingFromCode(code){
 function normalizeVoice(v){
   v = v || {};
   return {
-    engine:          v.engine === "neural" ? "neural" : "device",
+    engine:          (v.engine === "neural" || v.engine === "puter") ? v.engine : "device",
     deviceVoice:     v.deviceVoice || "",
     style:           v.style || "natural",
     ttsBaseUrl:      v.ttsBaseUrl || "",
@@ -1522,11 +1529,60 @@ function speak(text){ speakWith(text, getSettings().voice); }
 async function speakWith(text, v){
   if(muted || !text) return;
   v = v || {};
-  if(v.engine === "neural" && v.ttsBaseUrl && v.ttsKey){
-    const ok = await speakNeural(text, v);
-    if(ok) return;                 // else fall through to the free device voice
+  if(v.engine === "puter"){
+    if(await speakPuter(text, v)) return;          // else fall through to device voice
+  }else if(v.engine === "neural" && v.ttsBaseUrl && v.ttsKey){
+    if(await speakNeural(text, v)) return;
   }
   speakDevice(text, v);
+}
+
+// Load the Puter SDK on demand (opt-in only), so the file stays self-contained
+// unless the user actually chooses Puter voices.
+let puterLoading = null;
+function loadPuter(){
+  if(typeof window !== "undefined" && window.puter) return Promise.resolve(window.puter);
+  if(puterLoading) return puterLoading;
+  puterLoading = new Promise((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = "https://js.puter.com/v2/";
+    sc.onload = () => window.puter ? resolve(window.puter) : reject(new Error("Puter SDK loaded but unavailable"));
+    sc.onerror = () => { puterLoading = null; reject(new Error("could not load the Puter SDK (blocked or offline)")); };
+    document.head.appendChild(sc);
+  });
+  return puterLoading;
+}
+
+// Free realistic voices through Puter's keyless TTS.
+async function speakPuter(text, v){
+  try{
+    stopSpeaking();
+    const puter = await loadPuter();
+    const voice = (v && v.ttsVoice) || "nova";
+    // Puter's option shape has shifted across versions — try richer options
+    // first, then fall back to the simplest call.
+    const tries = [
+      () => puter.ai.txt2speech(text, { voice, model: "gpt-4o-mini-tts" }),
+      () => puter.ai.txt2speech(text, { voice, engine: "neural" }),
+      () => puter.ai.txt2speech(text, { voice }),
+      () => puter.ai.txt2speech(text)
+    ];
+    let audio = null, err = null;
+    for(const t of tries){ try{ audio = await t(); break; }catch(e){ err = e; } }
+    if(!audio) throw err || new Error("txt2speech failed");
+
+    if(audio && typeof audio.play === "function"){ currentAudio = audio; await audio.play(); }
+    else if(typeof audio === "string"){ currentAudio = new Audio(audio); await currentAudio.play(); }
+    else if(audio && audio.src){ currentAudio = new Audio(audio.src); await currentAudio.play(); }
+    else throw new Error("unexpected Puter audio result");
+    return true;
+  }catch(e){
+    if(!neuralWarned){
+      neuralWarned = true;
+      addMessage("note", "Puter voice failed (" + (e && e.message ? e.message : e) + ") — using the device voice.");
+    }
+    return false;
+  }
 }
 
 // Realistic neural voice via OpenAI-compatible /audio/speech -> play the mp3.
@@ -1744,6 +1800,7 @@ function openSettings(){
   $("setTtsInstructions").value = v.ttsInstructions;
   populateDeviceVoices(v.deviceVoice);
   populateTtsVoices(v.ttsVoice);
+  populatePuterVoices(v.ttsVoice);
   toggleVoicePanels();
   toggleWifiFields();
   $("setApiKey").type = "password";                 // always re-mask on open
@@ -1783,21 +1840,26 @@ function saveSettings(){
 
 /* ---- Voice settings UI ---- */
 function voiceFromForm(){
+  const engine = $("voiceEngine").value;
   return normalizeVoice({
-    engine:          $("voiceEngine").value,
+    engine,
     deviceVoice:     $("setDeviceVoice").value,
     style:           $("setVoiceStyle").value,
     ttsBaseUrl:      $("setTtsBase").value.trim(),
     ttsKey:          $("setTtsKey").value.trim(),
     ttsModel:        $("setTtsModel").value.trim(),
-    ttsVoice:        $("setTtsVoice").value,
+    // Voice id comes from whichever picker is active.
+    ttsVoice:        (engine === "puter" ? $("setPuterVoice").value : $("setTtsVoice").value),
     ttsInstructions: $("setTtsInstructions").value.trim()
   });
 }
 function toggleVoicePanels(){
-  const neural = $("voiceEngine").value === "neural";
+  const engine = $("voiceEngine").value;
+  const neural = engine === "neural", puter = engine === "puter";
   $("voiceNeuralPanel").style.display = neural ? "block" : "none";
-  $("voiceDevicePanel").style.display = neural ? "none" : "block";
+  $("voicePuterPanel").style.display = puter ? "block" : "none";
+  $("voiceDevicePanel").style.display = (neural || puter) ? "none" : "block";
+  if(puter){ $("voiceHint").textContent = "Free, no key — press 🔊 Test (first use loads the Puter SDK)."; }
   if(neural){
     // Make neural one step from working: pre-fill the endpoint + model so the
     // user only needs to paste a TTS key.
@@ -1830,6 +1892,16 @@ function populateDeviceVoices(selected){
 // Fill the neural voice dropdown from our persona-labeled list.
 function populateTtsVoices(selected){
   const sel = $("setTtsVoice"); if(!sel) return;
+  sel.innerHTML = "";
+  TTS_VOICES.forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.id; o.textContent = v.label;
+    if(v.id === selected) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+function populatePuterVoices(selected){
+  const sel = $("setPuterVoice"); if(!sel) return;
   sel.innerHTML = "";
   TTS_VOICES.forEach(v => {
     const o = document.createElement("option");
