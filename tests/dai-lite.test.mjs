@@ -397,10 +397,15 @@ test("styleToProsody returns sane rate/pitch and a natural default", () => {
   assert.deepEqual(D.styleToProsody("whatever"), { rate: 1.0, pitch: 1.0 });
 });
 
-test("normalizeVoice coerces engine and fills defaults", () => {
+test("normalizeVoice coerces engine and fills defaults (Warm-woman persona seeded)", () => {
   assert.equal(D.normalizeVoice({ engine: "neural" }).engine, "neural");
   assert.equal(D.normalizeVoice({ engine: "bogus" }).engine, "device");
-  assert.equal(D.normalizeVoice(undefined).ttsVoice, "nova");
+  const d = D.normalizeVoice(undefined);
+  assert.equal(d.ttsVoice, "nova");
+  assert.equal(d.ttsModel, "gpt-4o-mini-tts");
+  assert.equal(d.ttsInstructions, D.VOICE_PERSONAS.warmWoman.ttsInstructions);
+  // A user who deliberately clears the tone box keeps it empty.
+  assert.equal(D.normalizeVoice({ ttsInstructions: "" }).ttsInstructions, "");
 });
 
 /* ========================================================================
@@ -439,7 +444,11 @@ test("normalizeSettings shapes bad / partial input safely (defaults to auto-dete
   const defaults = {
     baseUrl: "", apiKey: "", model: "", deviceProfile: "auto", custom: {},
     connection: "ble", wsUrl: "",
-    voice: { engine: "device", deviceVoice: "", style: "natural", ttsBaseUrl: "", ttsKey: "", ttsModel: "", ttsVoice: "nova", ttsInstructions: "" },
+    voice: {
+      engine: "device", deviceVoice: "", style: "natural",
+      ttsBaseUrl: "", ttsKey: "", ttsModel: "gpt-4o-mini-tts", ttsVoice: "nova",
+      ttsInstructions: D.VOICE_PERSONAS.warmWoman.ttsInstructions,
+    },
   };
   assert.deepEqual(D.normalizeSettings(null), defaults);
   assert.deepEqual(D.normalizeSettings("not json"), defaults);

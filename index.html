@@ -545,7 +545,10 @@ function lineEndingFromCode(code){
   return "\r"; // "cr" (default; Flipper uses CR)
 }
 
-/* Fill in a voice-settings object with defaults. */
+/* Fill in a voice-settings object with defaults. The neural defaults are seeded
+   with the "Warm woman" persona and a ready-to-use model, so switching to neural
+   voices only needs a TTS key. Engine stays on the free device voice until then,
+   so first run never errors. */
 function normalizeVoice(v){
   v = v || {};
   return {
@@ -554,9 +557,9 @@ function normalizeVoice(v){
     style:           v.style || "natural",
     ttsBaseUrl:      v.ttsBaseUrl || "",
     ttsKey:          v.ttsKey || "",
-    ttsModel:        v.ttsModel || "",
+    ttsModel:        v.ttsModel || "gpt-4o-mini-tts",
     ttsVoice:        v.ttsVoice || "nova",
-    ttsInstructions: v.ttsInstructions || ""
+    ttsInstructions: (v.ttsInstructions != null) ? v.ttsInstructions : VOICE_PERSONAS.warmWoman.ttsInstructions
   };
 }
 
@@ -1478,6 +1481,17 @@ function toggleVoicePanels(){
   const neural = $("voiceEngine").value === "neural";
   $("voiceNeuralPanel").style.display = neural ? "block" : "none";
   $("voiceDevicePanel").style.display = neural ? "none" : "block";
+  if(neural){
+    // Make neural one step from working: pre-fill the endpoint + model so the
+    // user only needs to paste a TTS key.
+    if(!$("setTtsBase").value.trim())  $("setTtsBase").value  = "https://api.openai.com/v1";
+    if(!$("setTtsModel").value.trim()) $("setTtsModel").value = "gpt-4o-mini-tts";
+    $("voiceHint").textContent = $("setTtsKey").value.trim()
+      ? "Press 🔊 Test to preview this voice."
+      : "Realistic voices need a TTS-capable OpenAI key (OpenRouter has none) — paste one above, then Test.";
+  }else{
+    $("voiceHint").textContent = "";
+  }
 }
 function toggleWifiFields(){
   $("wifiFields").style.display = ($("setConnection").value === "wifi") ? "block" : "none";
