@@ -214,6 +214,9 @@
   .conn-dot.warn{ background:var(--copper); }
   .conn-label{ font-weight:700; width:58px; flex:0 0 auto; color:var(--text); }
   .conn-detail{ color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .quick{ display:flex; gap:6px; padding:6px 8px 0; overflow-x:auto; }
+  .quick .chip{ flex:0 0 auto; font-size:11px; padding:5px 9px; border:1px solid var(--border); border-radius:14px; background:var(--panel-2); color:var(--muted); cursor:pointer; white-space:nowrap; font-family:var(--mono); }
+  .quick .chip:hover{ border-color:var(--teal); color:var(--text); }
   .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
   .warn-box strong{ color:var(--copper); }
   .cors{ margin-top:14px; border:1px solid var(--border); border-radius:9px; padding:8px 10px; background:var(--panel-2); }
@@ -266,6 +269,7 @@
       <pre id="term"><span class="sys">DAI-LITE terminal ready. Connect a device to begin.
 Type a command below or let the assistant propose one.
 </span></pre>
+      <div id="quickCmds" class="quick"></div>
       <div class="cmdbar">
         <input id="cmdInput" placeholder="Manual command (↑/↓ for history)" autocomplete="off" spellcheck="false" />
         <button id="cmdSend" class="btn accent">Send</button>
@@ -577,6 +581,9 @@ const DEVICE_PROFILES = {
     lineEnding:"\n", chunkSize:20
   }
 };
+
+/* One-tap safe commands for the terminal (read-only / harmless). */
+const QUICK_COMMANDS = ["device_info", "power info", "storage list /ext", "storage info /ext", "help"];
 
 /* ---- OpenAI-compatible provider presets (Base URL + a sensible model) ---- */
 const PRESETS = {
@@ -1146,7 +1153,7 @@ function formatDeviceOutput(command, output){
    Harmless in the browser; essential for /tests to exercise the shipped code. */
 if(typeof globalThis !== "undefined"){
   globalThis.DAILITE = {
-    DEVICE_PROFILES, PRESETS, SERIAL_SERVICE, TX_CHAR, RX_CHAR,
+    DEVICE_PROFILES, PRESETS, QUICK_COMMANDS, SERIAL_SERVICE, TX_CHAR, RX_CHAR,
     lineEndingFromCode, normalizeSettings, getActiveProfile, profileIsComplete,
     candidateProfiles, buildRequestOptions, matchProfileByServices,
     appendCapture, formatDeviceOutput,
@@ -2385,6 +2392,17 @@ function clearTerminal(){
   termLine("Terminal cleared.", "sys");
 }
 function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("chatInput").value = ""; askAI(v); }
+function renderQuickCommands(){
+  const box = $("quickCmds"); if(!box) return;
+  box.textContent = "";
+  QUICK_COMMANDS.forEach(cmd => {
+    const chip = document.createElement("button");
+    chip.className = "chip"; chip.type = "button"; chip.textContent = cmd;
+    chip.title = "Send: " + cmd;
+    chip.addEventListener("click", () => sendCommand(cmd));
+    box.appendChild(chip);
+  });
+}
 function newChat(){
   conversation = [];                 // fresh context; long-term memory is untouched
   const chat = $("chat"); if(chat) chat.textContent = "";
@@ -2503,6 +2521,7 @@ function boot(){
   refreshAutoSendCache();
   updateDeviceLabel();
   updateModeUI();
+  renderQuickCommands();
   maybeShowSafety();
   addMessage("note", "Hold 🎙️ to talk, or type below. Pick your AI provider and device in ⚙️ Settings, then Connect. Device type defaults to Auto-detect.");
 }
