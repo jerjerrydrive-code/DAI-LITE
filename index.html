@@ -507,9 +507,18 @@ How to respond:
   user runs something, they can send the device's real output back to you with the
   "→ AI" button; use that output, and ask for it when you need to see a result.
 - Prefer safe, read-only/status commands first.
-- Before anything that transmits RF, emulates credentials, deletes data, or is
-  otherwise high-impact, warn briefly and remind the user they are responsible for
-  legal, authorized use only.`;
+- Be genuinely helpful. Assume the user owns this device and the things they are
+  testing, and is acting lawfully with authorization. Don't refuse ordinary hobby,
+  learning, or personal-project tasks, and don't lecture. Help with everyday jobs:
+  reading their own device state and files, IR remotes for their own TV/AC,
+  hardware peripherals, and exploring the CLI.
+- Decline only when a request clearly targets or interferes with people or systems
+  the user does NOT own or have permission to test — for example broadcasting to
+  all nearby devices, connecting to strangers' speakers, jamming, or cloning
+  someone else's credentials. Then say briefly why and offer a lawful alternative.
+- Before anything high-impact (transmitting RF, emulating credentials, deleting
+  data), add a short reminder that the user is responsible for legal, authorized
+  use — then still help if it's their own gear.`;
 
   if(profile && profile.key === "flipper"){
     p += `
@@ -692,6 +701,8 @@ let recognition = null, listening = false, sendOnEnd = false;
 let conversation = [];   // running history: [{role:'user'|'assistant', content}]
 let captureBuffer = "";  // most recent device output (rolling), for "send to AI"
 let lastCommand = "";    // the command whose output we're capturing
+let gotAnyRx = false;    // have we received ANY bytes since connecting?
+let bleHintShown = false;// only show the "no reply" firmware hint once
 
 /* ---- Settings (localStorage) ---- */
 const SETTINGS_KEY = "dailite_settings";
@@ -791,29 +802,65 @@ function onDisconnected(){
   termLine("Device disconnected.", "err");
 }
 
-/* Send a CLI command using the active profile's line ending + chunk size. */
-async function sendCommand(command){
-  if(!txChar){ termLine("Not connected — connect a device first.", "err"); return false; }
-  const p = activeProfile || DEVICE_PROFILES.flipper;
-  const chunks = chunkBytes(frameCommand(command, p.lineEnding), p.chunkSize);
-  try{
-    for(const chunk of chunks){
-      if(txChar.writeValueWithoutResponse) await txChar.writeValueWithoutResponse(chunk);
-      else await txChar.writeValue(chunk);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// A single GATT operation can be in flight at a time — overlapping writes throw
+// "operation already in progress". We serialize every command through this
+// promise chain so back-to-back sends (typing, or several Run buttons) queue
+// up instead of colliding.
+let writeChain = Promise.resolve();
+function queueWrite(task){
+  const next = writeChain.then(task, task);
+  writeChain = next.catch(() => {});   // never let a rejection break the chain
+  return next;
+}
+
+/* Send a CLI command using the active profile's line ending + chunk size.
+   Writes are serialized, use write-WITH-response, and are paced so we don't
+   overrun the device's small BLE buffer (which made the Flipper disconnect). */
+function sendCommand(command){
+  if(!txChar){ termLine("Not connected — connect a device first.", "err"); return Promise.resolve(false); }
+  return queueWrite(async () => {
+    if(!txChar){ termLine("Not connected — connect a device first.", "err"); return false; }
+    const p = activeProfile || DEVICE_PROFILES.flipper;
+    const chunks = chunkBytes(frameCommand(command, p.lineEnding), p.chunkSize);
+    try{
+      for(const chunk of chunks){
+        // Prefer write-with-response: it waits for the device to acknowledge,
+        // which paces us naturally and is far more reliable with Flipper.
+        if(txChar.writeValueWithResponse) await txChar.writeValueWithResponse(chunk);
+        else if(txChar.writeValue) await txChar.writeValue(chunk);
+        else await txChar.writeValueWithoutResponse(chunk);
+        await sleep(12);              // small gap so the firmware keeps up
+      }
+      termLine("> " + command, "cmd");
+      lastCommand = command;          // start a fresh capture window for this command
+      captureBuffer = "";
+      scheduleNoResponseHint();       // warn if the device never replies (RPC firmware)
+      return true;
+    }catch(err){
+      termLine("Write failed: " + (err && err.message ? err.message : err), "err");
+      return false;
     }
-    termLine("> " + command, "cmd");
-    lastCommand = command;   // start a fresh capture window for this command's output
-    captureBuffer = "";
-    return true;
-  }catch(err){
-    termLine("Write failed: " + (err && err.message ? err.message : err), "err");
-    return false;
-  }
+  });
+}
+
+// If a command produces no reply, the device probably isn't speaking raw text
+// over BLE (stock Flipper uses RPC). Surface that once instead of leaving the
+// user guessing.
+function scheduleNoResponseHint(){
+  setTimeout(() => {
+    if(!gotAnyRx && !bleHintShown && txChar){
+      bleHintShown = true;
+      termLine("No reply received. Note: stock Flipper firmware uses RPC (not a raw text CLI) over Bluetooth, so plain-text commands may get no response. See README → 'Why the Flipper may not respond' for the ESP32 / serial-bridge options.", "sys");
+    }
+  }, 2600);
 }
 
 /* Notification handler: decode incoming bytes as UTF-8, stream into terminal and
    into the rolling capture buffer (so the latest output can be sent to the AI). */
 function onDeviceData(event){
+  gotAnyRx = true;
   const text = rxDecoder ? rxDecoder.decode(event.target.value, { stream:true }) : "";
   if(!text) return;
   termAppend(text, "rx");
