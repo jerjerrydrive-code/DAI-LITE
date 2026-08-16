@@ -186,6 +186,8 @@
     box-shadow:var(--elev-1);
   }
   .btn.primary:hover{ box-shadow:var(--elev-2); }
+  .btn svg{ flex:0 0 auto; }
+  #connectBtn span{ padding-right:2px; }
   /* Tonal accent (secondary container). */
   .btn.accent{
     background:var(--secondary-container); color:var(--on-secondary-container);
@@ -3179,6 +3181,7 @@ function saveSettings(){
   if(!isConnected()) activeProfile = getActiveProfile(getSettings());
   refreshAutoSendCache();
   updateDeviceLabel();
+  setConnected(isConnected(), device && device.name);   // refresh Connect button icon
 }
 
 /* ---- Voice settings UI ---- */
@@ -3275,12 +3278,23 @@ const ACK_KEY = "dailite_safety_ack";
 function maybeShowSafety(){ if(!localStorage.getItem(ACK_KEY)) $("safetyOverlay").classList.add("show"); }
 
 /* ---- Connection status ---- */
+// SVG icons for each transport (kept here so Connect button + status update together).
+const ICON_USB   = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M15 7v4h1v2h-3V5h2l-3-4-3 4h2v8H8v-2.07c.7-.37 1.2-1.08 1.2-1.93A2.2 2.2 0 0 0 7 6.8 2.2 2.2 0 0 0 4.8 9c0 .85.5 1.56 1.2 1.93V13c0 1.11.89 2 2 2h3v3.05c-.71.37-1.2 1.1-1.2 1.95a2.2 2.2 0 0 0 4.4 0c0-.85-.49-1.58-1.2-1.95V15h3c1.11 0 2-.89 2-2v-2h1V7h-4z"/></svg>';
+const ICON_BLE   = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/></svg>';
+const ICON_WIFI  = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 0 0-6 0zm-4-4l2 2a7.07 7.07 0 0 1 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>';
+const ICON_LINK_OFF = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M17 7h-4v2h4a3 3 0 0 1 0 6h-1.17l2 2H17a5 5 0 0 0 5-5 5 5 0 0 0-5-5zM2.1 4.1L4.19 6.19A5 5 0 0 0 2 10a5 5 0 0 0 5 5h4v-2H7a3 3 0 0 1 0-6h1.19l2 2H7v2h5.19l2.71 2.71L18 21l1.41-1.41L3.51 3.51 2.1 4.1z"/></svg>';
+function transportIcon(t){
+  return t === "usb" ? ICON_USB : t === "wifi" ? ICON_WIFI : t === "ble" ? ICON_BLE : ICON_LINK_OFF;
+}
+
 function setConnected(connected, name){
   const el = $("status"); if(!el) return;
   el.classList.toggle("connected", connected);
   el.querySelector(".txt").textContent = connected ? "Connected" : "Disconnected";
   $("devname").textContent = connected && name ? name : "";
-  $("connectBtn").textContent = connected ? "Disconnect" : "Connect";
+  const chosen = getSettings().connection || "ble";
+  const btn = $("connectBtn");
+  btn.innerHTML = transportIcon(connected ? activeTransport : chosen) + '<span>' + (connected ? "Disconnect" : "Connect") + '</span>';
 }
 function isConnected(){
   // For USB, `serialPort` can linger after a physical unplug. Only true if
@@ -3534,6 +3548,7 @@ function boot(){
   updateDeviceLabel();
   updateModeUI();
   renderQuickCommands();
+  setConnected(false, "");    // paints the Connect icon based on the saved transport
   maybeShowSafety();
   renderChatEmptyState();
 }
