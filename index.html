@@ -3857,6 +3857,7 @@ function transportIcon(t){
 
 function setConnected(connected, name){
   const el = $("status"); if(!el) return;
+  const wasConnected = el.classList.contains("connected");
   document.body.classList.toggle("term-live", !!connected);
   el.classList.toggle("connected", connected);
   el.querySelector(".txt").textContent = connected ? "Connected" : "Disconnected";
@@ -3864,6 +3865,11 @@ function setConnected(connected, name){
   const chosen = getSettings().connection || "ble";
   const btn = $("connectBtn");
   btn.innerHTML = transportIcon(connected ? activeTransport : chosen) + '<span>' + (connected ? "Disconnect" : "Connect") + '</span>';
+  // Subtle mobile haptic on state change — one short buzz for connect,
+  // two shorter buzzes for disconnect. Silently no-ops on desktop / iOS.
+  if(wasConnected !== !!connected && typeof navigator !== "undefined" && navigator.vibrate){
+    try{ navigator.vibrate(connected ? 25 : [10, 40, 10]); }catch(_){}
+  }
 }
 function isConnected(){
   // For USB, `serialPort` can linger after a physical unplug. Only true if
