@@ -1766,7 +1766,8 @@ function stripAnsi(text){
     .replace(/\][^]*(?:|\\)/g, "")
     // Bare ESC + single letter fallbacks
     .replace(/[@-Z\\-_]/g, "")
-    // Bell + carriage-return-without-newline noise
+    // BEL (0x07) only — kept alone because Flipper CLI uses \r\n line
+    // endings and stripping bare CR would mangle them.
     .replace(//g, "");
 }
 
@@ -2183,6 +2184,12 @@ function getSettings(){
 
 /* ---- Chat history (localStorage; last 60 msgs so it stays small) ---- */
 const CONVO_KEY = "dailite_conversation";
+// Maps rendered bubbles → the exact conversation entry object they represent,
+// so deleteMessage can splice the correct entry even when other entries have
+// no visible bubble (e.g. sendCapturedOutput pushes role:"user" but renders
+// only a "note"). Bubbles that were restored from localStorage aren't in the
+// map — deleteMessage falls back to positional matching for those.
+const bubbleToEntry = typeof WeakMap !== "undefined" ? new WeakMap() : null;
 function saveConvo(){
   try{
     const trimmed = conversation.slice(-60);   // last 60 turns
@@ -2198,8 +2205,8 @@ const MEMORY_KEY = "dailite_memory";
 function getMemory(){ try{ return localStorage.getItem(MEMORY_KEY) || ""; }catch(_){ return ""; } }
 function setMemory(v){
   try{ localStorage.setItem(MEMORY_KEY, v || ""); }catch(_){}
-  // Refresh the mode tag so its "🧠 N facts" hint stays in sync.
-  if(typeof document !== "undefined" && document.getElementById && document.getElementById("modeTag")) updateModeUI();
+  // Refresh just the "🧠 N facts" tag — no need for a full mode-UI pass.
+  if(typeof document !== "undefined" && document.getElementById && document.getElementById("modeTag")) refreshMemoryHint();
 }
 function persistMemory(facts){
   if(!facts || !facts.length) return;
@@ -2212,10 +2219,15 @@ function renderAndSpeak(reply, alreadyRendered){
   const { facts, text } = extractMemories(reply);
   persistMemory(facts);
   const clean = text.trim();
-  if(!clean) return "";
-  conversation.push({ role:"assistant", content:clean });
+  if(!clean){ lastStreamBubble = null; return ""; }
+  const entry = { role:"assistant", content:clean };
+  conversation.push(entry);
   saveConvo();
-  if(!alreadyRendered) addMessage("assistant", clean);
+  let bubble = null;
+  if(!alreadyRendered){ bubble = addMessage("assistant", clean); }
+  else if(lastStreamBubble){ bubble = lastStreamBubble; }
+  lastStreamBubble = null;
+  if(bubble && bubbleToEntry) bubbleToEntry.set(bubble, entry);
   speak(pronounceForSpeech(stripRunLines(clean)));
   return clean;
 }
@@ -2246,17 +2258,22 @@ function updateModeUI(){
     lite.setAttribute("aria-selected", dai ? "false" : "true");
     daiBtn.setAttribute("aria-selected", dai ? "true" : "false");
   }
-  const tag = $("modeTag");
-  if(tag){
-    // Dai mode: append a "🧠 N facts" hint so the user can see the assistant
-    // actually has memory to draw on. Lite mode's persona doesn't lean on it.
-    const memCount = getMemory().split("\n").map(x => x.trim()).filter(Boolean).length;
-    const memBit = (dai && memCount) ? "  ·  🧠 " + memCount + " fact" + (memCount === 1 ? "" : "s") : "";
-    tag.textContent = (dai ? "· Dai — companion" : "· Lite — Flipper co-pilot") + memBit;
-    tag.title = memCount
-      ? "Long-term memory: " + memCount + " fact" + (memCount === 1 ? "" : "s") + " loaded into the system prompt."
-      : "Long-term memory is empty. Say REMEMBER: something to teach the assistant.";
-  }
+  refreshMemoryHint();
+}
+
+// Just the "· Dai — companion  ·  🧠 N facts" tag text + tooltip. Split out
+// so setMemory can refresh it without paying the cost of a full mode-UI pass
+// (empty-state teardown, model-tag re-query, aria-selected toggles) on every
+// REMEMBER: line the assistant emits.
+function refreshMemoryHint(){
+  const tag = $("modeTag"); if(!tag) return;
+  const dai = getSettings().mode === "dai";
+  const memCount = getMemory().split("\n").map(x => x.trim()).filter(Boolean).length;
+  const memBit = (dai && memCount) ? "  ·  🧠 " + memCount + " fact" + (memCount === 1 ? "" : "s") : "";
+  tag.textContent = (dai ? "· Dai — companion" : "· Lite — Flipper co-pilot") + memBit;
+  tag.title = memCount
+    ? "Long-term memory: " + memCount + " fact" + (memCount === 1 ? "" : "s") + " loaded into the system prompt."
+    : "Long-term memory is empty. Say REMEMBER: something to teach the assistant.";
 }
 
 /* ---- Terminal panel ---- */
@@ -2824,10 +2841,18 @@ function makeMsgActions(text, bubble, role){
     if(!clean.trim()){ snack("Nothing to read.", "info"); return; }
     speakBtn.innerHTML = stopIcon;
     speak(pronounceForSpeech(clean));
-    // Restore icon once TTS is done — poll briefly since engines vary.
-    let tries = 0;
+    // Two-phase watch: neural / Puter TTS may take a second to actually
+    // start (network + decode), so we first wait for isSpeaking() to flip
+    // true (up to ~10s), then poll for it flipping back to false.
+    let started = false, ticks = 0;
     const iv = setInterval(() => {
-      if(!isSpeaking() || ++tries > 300){ clearInterval(iv); speakBtn.innerHTML = speakerIcon; }
+      ticks++;
+      if(!started){
+        if(isSpeaking()){ started = true; return; }
+        if(ticks > 40){ clearInterval(iv); speakBtn.innerHTML = speakerIcon; }   // never started
+      }else{
+        if(!isSpeaking() || ticks > 400){ clearInterval(iv); speakBtn.innerHTML = speakerIcon; }
+      }
     }, 250);
   });
   wrap.appendChild(speakBtn);
@@ -2871,26 +2896,37 @@ function makeMsgActions(text, bubble, role){
 }
 
 /* Delete a chat bubble: remove from the DOM AND drop the matching entry from
-   the in-memory conversation. Matches by position (the k-th bubble of this
-   role in the chat corresponds to the k-th entry of the same role in the
-   conversation array) rather than by content, so repeating yourself doesn't
-   delete the wrong turn. */
+   the in-memory conversation. Prefers WeakMap-identity mapping (bubbleToEntry)
+   set when the bubble was first created — this is exact and unaffected by
+   entries with no visible bubble (e.g. sendCapturedOutput pushes role:"user"
+   but renders only a "note"). Falls back to positional matching for bubbles
+   restored from localStorage, which don't have a mapping. */
 function deleteMessage(bubble, _text, role){
   if(!bubble) return;
   if(role === "assistant" || role === "user"){
-    const chat = $("chat");
-    const selector = role === "user" ? ".msg.user" : ".msg.ai";
-    let k = 0;
-    if(chat){
-      const bubbles = chat.querySelectorAll(selector);
-      for(const b of bubbles){ if(b === bubble) break; k++; }
+    const entry = bubbleToEntry ? bubbleToEntry.get(bubble) : null;
+    let removed = false;
+    if(entry){
+      const idx = conversation.indexOf(entry);
+      if(idx >= 0){ conversation.splice(idx, 1); removed = true; }
     }
-    // Find the k-th entry of this role in the conversation and drop it.
-    let seen = 0;
-    for(let i = 0; i < conversation.length; i++){
-      if(conversation[i].role === role){
-        if(seen === k){ conversation.splice(i, 1); break; }
-        seen++;
+    if(!removed){
+      // Fallback: positional match, but count DOM bubbles vs same-role entries
+      // in the same order (matches for restored history where entries and
+      // visible bubbles are always 1:1).
+      const chat = $("chat");
+      const selector = role === "user" ? ".msg.user" : ".msg.ai";
+      let k = 0;
+      if(chat){
+        const bubbles = chat.querySelectorAll(selector);
+        for(const b of bubbles){ if(b === bubble) break; k++; }
+      }
+      let seen = 0;
+      for(let i = 0; i < conversation.length; i++){
+        if(conversation[i].role === role){
+          if(seen === k){ conversation.splice(i, 1); break; }
+          seen++;
+        }
       }
     }
     try{ localStorage.setItem(CONVO_KEY, JSON.stringify(conversation.slice(-60))); }catch(_){}
@@ -3097,13 +3133,16 @@ function makeRunRow(command){
 /* ---- AI request ---- */
 let aiBusy = false;       // one AI turn at a time, so messages can't interleave
 let streamBroken = false; // provider gave unusable SSE — stop trying this session
+let lastStreamBubble = null; // DOM node of the most recent streaming bubble, for bubble→entry mapping
 
 // The user typed/spoke a question: show it as a bubble, then get a reply.
 async function askAI(userText){
   if(aiBusy){ addMessage("note", "Still working on the previous message — one moment."); return; }
-  conversation.push({ role:"user", content:userText });
+  const entry = { role:"user", content:userText };
+  conversation.push(entry);
   saveConvo();
-  addMessage("user", userText);
+  const bubble = addMessage("user", userText);
+  if(bubble && bubbleToEntry) bubbleToEntry.set(bubble, entry);
   await runAiTurn();
 }
 
@@ -3242,6 +3281,7 @@ async function consumeStream(res){
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   const bubble = startAssistantBubble();
+  lastStreamBubble = bubble.el;
   let buf = "", full = "";
   const pump = (text) => {
     buf += text;
@@ -3286,8 +3326,12 @@ function startAssistantBubble(){
   const empty = chat && chat.querySelector(".empty"); if(empty) empty.remove();
   const followOnCreate = chat ? chatNearBottom(chat) : false;
   if(chat){ chat.appendChild(div); if(followOnCreate) chat.scrollTop = chat.scrollHeight; }
+  // Stream bypasses addMessage, so bump the jump-pill "unread" counter here
+  // when the user has scrolled up and a fresh reply lands below the fold.
+  if(!followOnCreate) noteJumpUnread();
   const follow = () => { if(chat && chatNearBottom(chat)) chat.scrollTop = chat.scrollHeight; };
   return {
+    el: div,                          // exposed so renderAndSpeak can map bubble→entry
     update(text){ body.textContent = text; follow(); },
     finish(text){
       div.classList.remove("streaming");   // stop the caret before we tear body down
