@@ -2072,7 +2072,7 @@ function sendRaw(text){
 
 // --- Phase 2: memory on the Flipper SD card (beta; needs a real Flipper CLI) ---
 async function saveMemoryToFlipper(){
-  if(!isConnected()){ addMessage("note", "Connect the Flipper first."); return; }
+  if(!isConnected()){ snack("Connect the Flipper first.", "error"); return; }
   const mem = getMemory().trim();
   if(!mem){ addMessage("note", "Memory is empty — nothing to save."); return; }
   memorySyncing = true;   // don't let auto-send forward the storage chatter to the AI
@@ -2091,11 +2091,11 @@ async function saveMemoryToFlipper(){
     await sendRaw("\x03");
     await sleep(200);
     await sendRaw("\r\n");
-    addMessage("note", "Sent — memory written to /ext/dai/memory.txt on the Flipper.");
+    snack("Memory saved to Flipper (/ext/dai/memory.txt)", "ok");
   }finally{ awaitingAuto = false; clearTimeout(autoTimer); memorySyncing = false; }
 }
 async function loadMemoryFromFlipper(){
-  if(!isConnected()){ addMessage("note", "Connect the Flipper first."); return; }
+  if(!isConnected()){ snack("Connect the Flipper first.", "error"); return; }
   memorySyncing = true;
   try{
     captureBuffer = "";
@@ -2106,7 +2106,7 @@ async function loadMemoryFromFlipper(){
     if(!facts.length){ addMessage("note", "No memory found on the Flipper (file missing or empty)."); return; }
     setMemory(appendMemory(getMemory(), facts));
     if($("setMemory")) $("setMemory").value = getMemory();
-    addMessage("note", "Loaded " + facts.length + " fact(s) from the Flipper into memory.");
+    snack("Loaded " + facts.length + " fact(s) from Flipper into memory.", "ok");
   }finally{ awaitingAuto = false; clearTimeout(autoTimer); memorySyncing = false; }
 }
 
@@ -2618,7 +2618,7 @@ async function ensureMicWarm(){
     micStream = await md.getUserMedia({ audio:true });   // kept OPEN on purpose
     if(!micNoteShown){
       micNoteShown = true;
-      addMessage("note", "Mic ready. It stays active while this tab is open so the browser won't keep re-asking — that's why the recording dot stays on.");
+      snack("Mic ready — kept live so the browser stops re-asking. Recording dot stays on.", "info", 4200);
     }
     return true;
   }catch(_){ micStream = null; return false; }
@@ -2648,7 +2648,7 @@ if(typeof window !== "undefined" && window.addEventListener){ window.addEventLis
 if(typeof navigator !== "undefined" && navigator.serial && navigator.serial.addEventListener){
   navigator.serial.addEventListener("disconnect", (e) => {
     if(serialPort && e.target === serialPort){
-      addMessage("note", "USB device unplugged.");
+      snack("USB device unplugged.", "error");
       disconnectUsb();
     }
   });
@@ -2744,7 +2744,7 @@ function easySetup(){
   populatePuterVoices($("setPuterVoice") && $("setPuterVoice").value || "nova");
   toggleVoicePanels();
   saveSettings();   // persists and closes
-  addMessage("note", "⚡ Easy setup done — free AI + voice via Puter, no keys. A one-time Puter sign-in may pop up on first use. Connect a device whenever you're ready.");
+  snack("Easy setup done — free AI + voice via Puter (no keys).", "ok", 4200);
 }
 function toggleKeyReveal(){
   const inp = $("setApiKey");
