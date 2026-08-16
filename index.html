@@ -407,9 +407,11 @@ Type a command below or let the assistant propose one.
 
     <label>Connection</label>
     <select id="setConnection">
+      <option value="usb">USB (direct — Chrome/Edge)</option>
       <option value="ble">Bluetooth (BLE)</option>
       <option value="wifi">WiFi (WebSocket bridge)</option>
     </select>
+    <div id="usbHint" class="hint" style="display:none">Native Web Serial: Chrome/Edge picks the COM port itself — no Python bridge needed. Windows/macOS/Linux desktop.</div>
 
     <div id="wifiFields" style="display:none">
       <label>WebSocket URL</label>
@@ -667,7 +669,7 @@ function normalizeSettings(raw){
     model:         s.model || "",
     deviceProfile: s.deviceProfile || "auto",
     custom:        s.custom || {},
-    connection:    s.connection === "wifi" ? "wifi" : "ble",
+    connection:    (s.connection === "wifi" || s.connection === "usb") ? s.connection : "ble",
     wsUrl:         s.wsUrl || "",
     autoSendOutput: !!s.autoSendOutput,
     hapticAck:     !!s.hapticAck,           // buzz the Flipper when a command runs
@@ -1623,7 +1625,72 @@ function connectWifi(){
 
 function disconnectActive(){
   if(activeTransport === "ws"){ if(ws){ try{ ws.close(); }catch(_){} } }
+  else if(activeTransport === "usb"){ disconnectUsb(); }
   else if(gattServer){ try{ device.gatt.disconnect(); }catch(_){} }
+}
+
+/* ---- USB transport (native Web Serial API — no bridge required) ----
+   Chrome/Edge exposes navigator.serial: the browser pops a real COM-port picker,
+   we open the port, then read/write directly. This is the "USB permission"
+   dialog the user was expecting from Connect. */
+let serialPort = null, serialWriter = null, serialReader = null, serialReadLoopAbort = false;
+
+async function connectUsb(){
+  if(typeof navigator === "undefined" || !navigator.serial){
+    termLine("Web Serial isn't available here. Use Chrome or Edge on desktop, and serve the page over http://localhost (or https://).", "err");
+    return;
+  }
+  try{
+    termLine("Requesting a USB serial device…", "sys");
+    // Filter to Flipper's USB VID (0x0483) but let the user pick anything by
+    // clicking "Show all" in the chooser if they use a different device.
+    serialPort = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x0483 }] });
+    await serialPort.open({ baudRate: 115200 });
+    activeProfile = DEVICE_PROFILES.flipper;   // USB Flipper => text CLI
+    activeTransport = "usb";
+    bleRpcMode = false;
+    gotAnyRx = false; bleHintShown = true;     // CLI path — no BLE hint needed
+    resetRxDecoder();
+    serialWriter = serialPort.writable.getWriter();
+    // Kick off a background read loop; decode bytes into the terminal.
+    serialReadLoopAbort = false;
+    (async () => {
+      try{
+        while(!serialReadLoopAbort && serialPort && serialPort.readable){
+          serialReader = serialPort.readable.getReader();
+          try{
+            while(true){
+              const { value, done } = await serialReader.read();
+              if(done) break;
+              if(value) ingestText(rxDecoder ? rxDecoder.decode(value, { stream:true }) : "");
+            }
+          }catch(_){ /* stream ended; loop reopens if still connected */ }
+          finally{ try{ serialReader.releaseLock(); }catch(_){} serialReader = null; }
+        }
+      }catch(_){}
+    })();
+    setConnected(true, "USB serial");
+    setDevTag("Flipper Zero (USB)");
+    renderQuickCommands();
+    termLine("USB serial link is live — try `device_info` or the chips above.", "sys");
+  }catch(err){
+    if(err && err.name === "NotFoundError") termLine("USB connection cancelled (no device picked).", "sys");
+    else termLine("USB error: " + (err && err.message ? err.message : err), "err");
+    setConnected(false);
+    serialPort = null;
+  }
+}
+
+async function disconnectUsb(){
+  serialReadLoopAbort = true;
+  try{ if(serialReader) await serialReader.cancel(); }catch(_){}
+  try{ if(serialWriter){ serialWriter.releaseLock(); } }catch(_){}
+  serialReader = null; serialWriter = null;
+  try{ if(serialPort) await serialPort.close(); }catch(_){}
+  serialPort = null;
+  activeTransport = null;
+  setConnected(false);
+  termLine("USB disconnected.", "err");
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -1643,6 +1710,17 @@ function queueWrite(task){
    Writes are serialized, use write-WITH-response, and are paced so we don't
    overrun the device's small BLE buffer (which made the Flipper disconnect). */
 function sendCommand(command){
+  // USB path: write directly to the serial port via Web Serial.
+  if(activeTransport === "usb"){
+    if(!serialWriter){ termLine("Not connected — connect first.", "err"); return Promise.resolve(false); }
+    const p = activeProfile || DEVICE_PROFILES.flipper;
+    lastCommand = command; captureBuffer = "";
+    armAutoSend();
+    return serialWriter.write(enc.encode(command + p.lineEnding)).then(
+      () => { termLine("> " + command, "cmd"); maybeHaptic(); return true; },
+      (err) => { termLine("USB write failed: " + (err && err.message ? err.message : err), "err"); return false; }
+    );
+  }
   // WiFi path: one text frame per command (the bridge handles the serial side).
   if(activeTransport === "ws"){
     if(!ws || ws.readyState !== 1){ termLine("Not connected — connect first.", "err"); return Promise.resolve(false); }
@@ -2538,7 +2616,9 @@ function toggleVoicePanels(){
   }
 }
 function toggleWifiFields(){
-  $("wifiFields").style.display = ($("setConnection").value === "wifi") ? "block" : "none";
+  const v = $("setConnection").value;
+  $("wifiFields").style.display = (v === "wifi") ? "block" : "none";
+  const usbHint = $("usbHint"); if(usbHint) usbHint.style.display = (v === "usb") ? "block" : "none";
 }
 // Fill the device-voice dropdown from the OS voices the browser exposes.
 function populateDeviceVoices(selected){
@@ -2603,13 +2683,16 @@ function setConnected(connected, name){
   $("connectBtn").textContent = connected ? "Disconnect" : "Connect";
 }
 function isConnected(){
-  return (activeTransport === "ws" && ws && ws.readyState === 1) ||
+  return (activeTransport === "usb" && !!serialPort) ||
+         (activeTransport === "ws"  && ws && ws.readyState === 1) ||
          (activeTransport === "ble" && gattServer && gattServer.connected);
 }
 function toggleConnect(){
   if(isConnected()){ disconnectActive(); return; }
   const conn = getSettings().connection || "ble";
-  if(conn === "wifi") connectWifi(); else connectDevice();
+  if(conn === "usb")       connectUsb();
+  else if(conn === "wifi") connectWifi();
+  else                     connectDevice();
 }
 
 /* ---- Input helpers ---- */
