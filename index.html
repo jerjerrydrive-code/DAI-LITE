@@ -2787,11 +2787,13 @@ function renderTextWithCodeBlocks(parent, text){
 }
 
 // Hover-reveal copy button for an assistant message.
-function makeMsgActions(text){
+function makeMsgActions(text, bubble, role){
   const wrap = document.createElement("div");
   wrap.className = "msg-actions";
+  const isAssistant = role !== "user";       // "user" bubbles get a slimmer set
 
   // Read aloud — replays this message through the configured TTS.
+  if(isAssistant){
   const speakBtn = document.createElement("button");
   speakBtn.type = "button"; speakBtn.title = "Read aloud"; speakBtn.setAttribute("aria-label", "Read this message aloud");
   const speakerIcon = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2A4.5 4.5 0 0 0 14 8.03v7.94A4.5 4.5 0 0 0 16.5 12z"/></svg>';
@@ -2819,6 +2821,7 @@ function makeMsgActions(text){
   regen.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
   regen.addEventListener("click", () => regenerateLastReply());
   wrap.appendChild(regen);
+  }  // end isAssistant-only actions
 
   // Copy message.
   const btn = document.createElement("button");
@@ -2838,7 +2841,40 @@ function makeMsgActions(text){
     }catch(_){}
   });
   wrap.appendChild(btn);
+
+  // Delete this message — pops it from the in-memory conversation and DOM.
+  const del = document.createElement("button");
+  del.type = "button"; del.title = "Delete this message"; del.setAttribute("aria-label", "Delete message");
+  del.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
+  del.addEventListener("click", () => deleteMessage(bubble, text, role));
+  wrap.appendChild(del);
+
   return wrap;
+}
+
+/* Delete a chat bubble: remove from the DOM AND drop the matching entry from
+   the in-memory conversation, so it doesn't reappear on the next AI turn or
+   after a reload. Best-effort match by (role, exact content) — enough since
+   we're only comparing against the visible tail. */
+function deleteMessage(bubble, text, role){
+  if(!bubble) return;
+  bubble.remove();
+  if(role === "assistant" || role === "user"){
+    for(let i = conversation.length - 1; i >= 0; i--){
+      if(conversation[i].role === role && conversation[i].content === text){
+        conversation.splice(i, 1); break;
+      }
+    }
+    try{ localStorage.setItem(CONVO_KEY, JSON.stringify(conversation.slice(-60))); }catch(_){}
+    // Keep the is-last-ai marker on whatever's now the newest assistant reply.
+    const chat = $("chat"); if(chat){
+      chat.querySelectorAll(".msg.ai.is-last-ai").forEach(n => n.classList.remove("is-last-ai"));
+      const bubbles = chat.querySelectorAll(".msg.ai");
+      const prev = bubbles[bubbles.length - 1];
+      if(prev) prev.classList.add("is-last-ai");
+    }
+  }
+  snack("Message deleted.", "info");
 }
 
 /* ---- Command palette (Ctrl+K / Cmd+K) ---- */
@@ -2971,6 +3007,7 @@ function addMessage(role, content){
     div.className = "msg user";
     div.appendChild(roleTag("You"));
     div.appendChild(document.createTextNode(content));
+    div.appendChild(makeMsgActions(content, div, "user"));
   }else if(role === "assistant"){
     div.className = "msg ai";
     div.appendChild(roleTag("DAI-LITE"));
@@ -2978,7 +3015,7 @@ function addMessage(role, content){
       if(seg.type === "text"){ renderTextWithCodeBlocks(div, seg.text); }
       else { div.appendChild(makeRunRow(seg.command)); }
     }
-    div.appendChild(makeMsgActions(content));
+    div.appendChild(makeMsgActions(content, div, "assistant"));
     // Only the newest assistant reply carries the "regenerate" affordance.
     chat.querySelectorAll(".msg.ai.is-last-ai").forEach(n => n.classList.remove("is-last-ai"));
     div.classList.add("is-last-ai");
@@ -3231,7 +3268,7 @@ function startAssistantBubble(){
         if(seg.type === "text"){ renderTextWithCodeBlocks(div, seg.text); }
         else { div.appendChild(makeRunRow(seg.command)); }
       }
-      div.appendChild(makeMsgActions(text));
+      div.appendChild(makeMsgActions(text, div, "assistant"));
       // This bubble is now the newest assistant reply — mark it as such so the
       // regenerate affordance moves with it (and off any earlier bubble).
       if(chat){
