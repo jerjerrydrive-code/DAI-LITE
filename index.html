@@ -40,24 +40,61 @@
 <style>
   /* ---------- Theme tokens (dark, teal primary, copper accent) ---------- */
   :root{
-    --bg:        #0a0e10;   /* app background            */
-    --bg-2:      #060a0b;   /* deeper wells              */
-    --panel:     #10181a;   /* panel surfaces            */
-    --panel-2:   #0c1416;   /* inputs / terminal body    */
-    --panel-hi:  #172325;   /* hover                     */
-    --border:    #1b2a2d;   /* hairline borders          */
-    --border-hi: #2a3d40;   /* stronger borders          */
-    --text:      #eaf2f4;   /* primary text              */
-    --muted:     #8ea6ab;   /* secondary text            */
-    --dim:       #566d71;   /* tertiary text             */
-    --teal:      #14b5a6;   /* primary (brighter)        */
-    --teal-hi:   #2dd4bf;   /* primary hover             */
-    --teal-dim:  #0d7a70;   /* primary dim               */
-    --copper:    #f0b46b;   /* accent (softer)           */
-    --copper-dim:#c9873a;   /* accent dim                */
-    --danger:    #e57373;   /* errors / disconnect       */
-    --ok:        #4ade80;   /* connected                 */
-    --shadow:    0 4px 16px rgba(0,0,0,.35);
+    /* ---- Material 3 dark scheme (teal primary / copper secondary) ---- */
+    --primary:                 #7ee4d6;
+    --on-primary:              #00382f;
+    --primary-container:       #005046;
+    --on-primary-container:    #a0ffee;
+    --secondary:               #ffcb8e;
+    --on-secondary:            #4a2800;
+    --secondary-container:     #683d00;
+    --on-secondary-container:  #ffddb8;
+    --error:                   #ffb4ab;
+    --on-error:                #690005;
+    --error-container:         #93000a;
+    --success:                 #7edc9b;
+    /* Elevation tiers — lower number = deeper. */
+    --surface-dim:             #0c1213;
+    --surface:                 #10171a;
+    --surface-bright:          #363d3f;
+    --surface-cont-lowest:     #060b0c;
+    --surface-cont-low:        #141b1d;
+    --surface-cont:            #181f21;
+    --surface-cont-high:       #232b2c;
+    --surface-cont-highest:    #2d3436;
+    --on-surface:              #e2e8ea;
+    --on-surface-var:          #bfc9ca;
+    --on-surface-dim:          #849294;
+    --outline:                 #8a9998;
+    --outline-var:             #3f4a4b;
+    /* Elevation shadows — M3 style layered shadows */
+    --elev-1: 0 1px 2px rgba(0,0,0,.30), 0 1px 3px 1px rgba(0,0,0,.15);
+    --elev-2: 0 1px 2px rgba(0,0,0,.30), 0 2px 6px 2px rgba(0,0,0,.15);
+    --elev-3: 0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.30);
+    --elev-4: 0 6px 10px 4px rgba(0,0,0,.15), 0 2px 3px rgba(0,0,0,.30);
+    /* State layer opacities per M3 spec */
+    --state-hover: .08;
+    --state-focus: .12;
+    --state-press: .12;
+    /* Back-compat aliases so nothing else breaks in this batch. */
+    --bg:        var(--surface-dim);
+    --bg-2:      var(--surface-cont-lowest);
+    --panel:     var(--surface-cont);
+    --panel-2:   var(--surface-cont-low);
+    --panel-hi:  var(--surface-cont-high);
+    --border:    var(--outline-var);
+    --border-hi: var(--outline);
+    --text:      var(--on-surface);
+    --muted:     var(--on-surface-var);
+    --dim:       var(--on-surface-dim);
+    --teal:      var(--primary);
+    --teal-hi:   #99f0e3;
+    --teal-dim:  var(--primary-container);
+    --copper:    var(--secondary);
+    --copper-dim:var(--secondary-container);
+    --danger:    var(--error);
+    --ok:        var(--success);
+    --shadow:    var(--elev-2);
     --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
