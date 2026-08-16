@@ -174,7 +174,8 @@
     transition:opacity .12s cubic-bezier(.2,0,0,1);
   }
   .btn:hover::before{ opacity:var(--state-hover); }
-  .btn:focus-visible{ outline:none; }
+  /* M3 focus ring — keyboard users get a proper visible indicator, mouse doesn't. */
+  .btn:focus-visible{ outline:2px solid var(--primary); outline-offset:2px; }
   .btn:focus-visible::before{ opacity:var(--state-focus); }
   .btn:active::before{ opacity:var(--state-press); }
   .btn:disabled{ opacity:.38; cursor:not-allowed; pointer-events:none; }
@@ -447,11 +448,15 @@
   }
   .modal textarea{ resize:vertical; min-height:96px; line-height:1.55; font-family:var(--sans); font-size:14px; border-radius:8px; border-bottom:1px solid var(--outline); }
   .modal input:hover, .modal select:hover, .modal textarea:hover{ background:var(--surface-cont-highest); }
-  .modal input:focus, .modal select:focus, .modal textarea:focus{
+  .modal input:focus-visible, .modal select:focus-visible, .modal textarea:focus-visible{
     outline:none;
     background:var(--surface-cont-highest);
     border-bottom-color:var(--primary);
     box-shadow:inset 0 -2px 0 0 var(--primary);   /* the M3 focus indicator */
+  }
+  /* Any element with tabindex focus keyboard-only: subtle ring, no ugly default. */
+  .seg-btn:focus-visible, #mic:focus-visible, .quick .chip:focus-visible, .run .go:focus-visible{
+    outline:2px solid var(--primary); outline-offset:2px;
   }
   .presets{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .presets .btn{ font-size:12px; padding:7px 12px; border-radius:8px; }
