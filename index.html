@@ -1352,6 +1352,9 @@ let captureBuffer = "";  // most recent device output (rolling), for "send to AI
 let lastCommand = "";    // the command whose output we're capturing
 let gotAnyRx = false;    // have we received ANY bytes since connecting?
 let bleHintShown = false;// only show the "no reply" firmware hint once
+let bleRpcMode = false;  // BLE + Flipper = native protobuf RPC, not text CLI
+let rpcRxBytes = [];     // accumulating RPC byte stream across BLE packets
+let rpcCmdId = 0;        // RPC command_id counter
 
 /* ---- Settings (localStorage) ---- */
 const SETTINGS_KEY = "dailite_settings";
@@ -1481,15 +1484,20 @@ async function connectDevice(){
     activeTransport = "ble";
     gotAnyRx = false; bleHintShown = false;   // fresh "no reply" watch for this session
     resetRxDecoder();
-    // Stock Flipper BLE is an RPC (protobuf) transport, not a wireless CLI.
-    // Plain text looks like a malformed RPC stream, so the firmware closes the
-    // session — that's the "connects then drops" behavior. Warn up front.
-    if(activeProfile.key === "flipper"){
-      addMessage("note", "⚠️ Stock Flipper Bluetooth speaks RPC (protobuf), not the text CLI. Text commands usually get no reply and can make the firmware drop the link. For a working CLI use the USB PC bridge (bridge/dai_bridge.py) or the ESP32 UART bridge.");
+    // Stock Flipper BLE is an RPC (protobuf) transport, not a wireless CLI, so
+    // switch this session to native RPC: RX is decoded as protobuf frames and the
+    // terminal offers RPC actions (ping proves the transport).
+    bleRpcMode = (activeProfile.key === "flipper");
+    rpcRxBytes = [];
+    if(bleRpcMode){
+      addMessage("note", "Native RPC mode: stock Flipper Bluetooth speaks protobuf RPC, not the text CLI. Tap the RPC ▸ ping chip to prove the link, then device_info. For the full text CLI, use the USB PC bridge.");
     }
     setConnected(true, device.name);
     setDevTag(activeProfile.label);
-    termLine("Connected to " + device.name + " — detected " + activeProfile.label + ". Serial link is live — try `help`.", "sys");
+    renderQuickCommands();   // swap to RPC chips when in RPC mode
+    termLine(bleRpcMode
+      ? "Connected to " + device.name + " — " + activeProfile.label + " (native RPC). Try RPC ▸ ping."
+      : "Connected to " + device.name + " — detected " + activeProfile.label + ". Serial link is live — try `help`.", "sys");
   }catch(err){
     if(err && err.name === "NotFoundError") termLine("Connection cancelled.", "sys");
     else termLine("Bluetooth error: " + (err && err.message ? err.message : err), "err");
@@ -1501,7 +1509,66 @@ function onDisconnected(){
   setConnected(false);
   txChar = null; rxChar = null; gattServer = null;
   if(activeTransport === "ble") activeTransport = null;
+  bleRpcMode = false; rpcRxBytes = [];
+  renderQuickCommands();   // back to CLI quick chips
   termLine("Device disconnected.", "err");
+}
+
+/* ---- Native Flipper RPC over BLE (the real transport) ----
+   Write a varint-framed protobuf Main message over the TX characteristic, and
+   decode RX notifications as RPC frames. This replaces pushing CLI text at BLE,
+   which the firmware rejects. Codec lives in the pure layer (rpc* helpers). */
+function sendRpcFrame(frame){
+  if(activeTransport !== "ble" || !txChar){ termLine("RPC needs a BLE-connected Flipper.", "err"); return Promise.resolve(false); }
+  const p = activeProfile || DEVICE_PROFILES.flipper;
+  return queueWrite(async () => {
+    try{
+      for(const chunk of chunkBytes(frame, p.chunkSize)){
+        if(txChar.writeValueWithResponse) await txChar.writeValueWithResponse(chunk);
+        else if(txChar.writeValue) await txChar.writeValue(chunk);
+        else await txChar.writeValueWithoutResponse(chunk);
+        await sleep(12);
+      }
+      return true;
+    }catch(err){ termLine("RPC write failed: " + (err && err.message ? err.message : err), "err"); return false; }
+  });
+}
+async function rpcPingAction(){
+  if(!bleRpcMode){ termLine("RPC ping needs a BLE-connected Flipper.", "err"); return; }
+  const id = ++rpcCmdId; rpcRxBytes = [];
+  termLine("[RPC] → ping (cmd " + id + ")", "cmd");
+  await sendRpcFrame(rpcPing(id));
+  scheduleNoResponseHint();
+}
+async function rpcDeviceInfoAction(){
+  if(!bleRpcMode){ termLine("RPC device_info needs a BLE-connected Flipper.", "err"); return; }
+  const id = ++rpcCmdId; rpcRxBytes = [];
+  termLine("[RPC] → device_info (cmd " + id + ")", "cmd");
+  await sendRpcFrame(rpcDeviceInfo(id));
+  scheduleNoResponseHint();
+}
+// Decode incoming RPC bytes: accumulate, split into frames, handle each Main.
+function handleRpcBytes(dataView){
+  gotAnyRx = true;
+  const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+  for(let i = 0; i < bytes.length; i++) rpcRxBytes.push(bytes[i]);
+  const { frames, rest } = rpcSplitFrames(rpcRxBytes);
+  rpcRxBytes = rest;
+  for(const f of frames) handleRpcMain(f);
+}
+function handleRpcMain(frame){
+  const main = rpcParseMain(frame);
+  if(main.tag === RPC_TAG.PING_RESP){
+    termLine("[RPC] ✓ ping response — native Flipper RPC works over BLE.", "sys");
+  }else if(main.tag === RPC_TAG.DEVICE_INFO_RESP){
+    const kv = rpcParseKeyValue(main.content);
+    if(kv.key) termLine("[RPC] " + kv.key + " = " + kv.value, "rx");
+    if(!main.hasNext) termLine("[RPC] device_info complete.", "sys");
+  }else if(main.status){
+    termLine("[RPC] command " + main.commandId + " → status " + main.status, "err");
+  }else{
+    termLine("[RPC] response tag " + main.tag + " (cmd " + main.commandId + ")", "rx");
+  }
 }
 
 /* ---- WiFi transport (WebSocket serial bridge) ----
@@ -1738,6 +1805,7 @@ function ingestText(text){
 
 /* BLE notification handler: decode incoming bytes as UTF-8, then ingest. */
 function onDeviceData(event){
+  if(bleRpcMode){ handleRpcBytes(event.target.value); return; }   // binary protobuf, not text
   ingestText(rxDecoder ? rxDecoder.decode(event.target.value, { stream:true }) : "");
 }
 
@@ -2575,6 +2643,20 @@ function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("ch
 function renderQuickCommands(){
   const box = $("quickCmds"); if(!box) return;
   box.textContent = "";
+  // In native BLE RPC mode, text CLI won't work — offer RPC actions instead.
+  if(bleRpcMode){
+    const tag = document.createElement("span");
+    tag.className = "chip"; tag.style.borderColor = "var(--copper)"; tag.style.color = "var(--copper)";
+    tag.textContent = "RPC ▸"; box.appendChild(tag);
+    [["ping", rpcPingAction], ["device_info", rpcDeviceInfoAction]].forEach(([name, fn]) => {
+      const chip = document.createElement("button");
+      chip.className = "chip"; chip.type = "button"; chip.textContent = name;
+      chip.title = "Native RPC: " + name;
+      chip.addEventListener("click", fn);
+      box.appendChild(chip);
+    });
+    return;
+  }
   QUICK_COMMANDS.forEach(cmd => {
     const chip = document.createElement("button");
     chip.className = "chip"; chip.type = "button"; chip.textContent = cmd;
