@@ -231,6 +231,31 @@
     border:1px solid var(--outline-var); border-radius:20px;
     overflow:hidden;
     box-shadow:var(--elev-1);
+    position:relative;                 /* anchor for the "jump to latest" pill */
+  }
+  /* Floating "jump to latest" pill — sits above the chatbar when the user
+     has scrolled up mid-conversation. Click = scroll to bottom. */
+  .jump-pill{
+    position:absolute; left:50%; transform:translateX(-50%) translateY(6px);
+    bottom:78px;                      /* clears the chatbar (approx 66px tall) */
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--primary-cont); color:var(--on-primary-cont);
+    border:1px solid var(--outline-var); border-radius:999px;
+    padding:8px 14px 8px 12px;
+    font-size:12.5px; font-weight:600; letter-spacing:.01em;
+    box-shadow:var(--elev-2);
+    cursor:pointer;
+    opacity:0; pointer-events:none;
+    transition:opacity .18s ease, transform .18s ease;
+    z-index:5;
+  }
+  .jump-pill.show{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
+  .jump-pill:hover{ background:color-mix(in oklab, var(--primary-cont) 90%, white 10%); }
+  .jump-pill svg{ opacity:.85; }
+  .jump-pill .badge{
+    background:var(--primary); color:var(--on-primary);
+    border-radius:999px; padding:1px 7px;
+    font-size:11px; margin-left:4px; font-variant-numeric:tabular-nums;
   }
   .panel > .head{
     display:flex; align-items:center; gap:12px;
@@ -857,6 +882,10 @@
         </button>
       </div>
       <div id="chat"></div>
+      <button id="jumpToLatest" class="jump-pill" type="button" aria-label="Jump to latest message" title="Scroll to newest">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7.4 8.6L12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg>
+        <span>Jump to latest</span><span id="jumpCount" class="badge" hidden>0</span>
+      </button>
       <div class="chatbar">
         <button id="mic" title="Hold to talk" aria-label="Hold to talk">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5.3-3a5.3 5.3 0 0 1-10.6 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-1.7z"/></svg>
@@ -2828,6 +2857,33 @@ function snack(text, tone, ms){
 // Helper: is the chat panel already close to the bottom? (auto-scroll follows.)
 function chatNearBottom(chat){ return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 60; }
 
+/* Jump-to-latest pill state — visible only when the user has scrolled up
+   in the chat panel. If new messages arrive while it's up, show a count. */
+let jumpUnread = 0;
+function scrollChatToBottom(){
+  const chat = $("chat"); if(!chat) return;
+  chat.scrollTop = chat.scrollHeight;
+  hideJumpPill();
+}
+function hideJumpPill(){
+  const pill = $("jumpToLatest"); const bad = $("jumpCount");
+  jumpUnread = 0;
+  if(pill) pill.classList.remove("show");
+  if(bad){ bad.textContent = "0"; bad.hidden = true; }
+}
+function refreshJumpPill(){
+  const chat = $("chat"); const pill = $("jumpToLatest");
+  if(!chat || !pill) return;
+  if(chatNearBottom(chat)){ hideJumpPill(); return; }
+  pill.classList.add("show");
+}
+function noteJumpUnread(){
+  const chat = $("chat"); const bad = $("jumpCount");
+  if(!chat || chatNearBottom(chat)) return;
+  jumpUnread++;
+  if(bad){ bad.textContent = String(jumpUnread); bad.hidden = false; }
+}
+
 function addMessage(role, content){
   const chat = $("chat"); if(!chat) return null;
   // First real message removes the empty-state welcome card.
@@ -2870,6 +2926,8 @@ function addMessage(role, content){
   }
   chat.appendChild(div);
   if(shouldFollow) chat.scrollTop = chat.scrollHeight;
+  // If it's not our own turn and we're scrolled up, bump the "new messages" count.
+  if(role !== "user" && role !== "thinking" && !shouldFollow) noteJumpUnread();
   return div;
 }
 
@@ -3758,6 +3816,7 @@ function newChat(){
   try{ localStorage.removeItem(CONVO_KEY); }catch(_){}
   const chat = $("chat"); if(chat) chat.textContent = "";
   stopSpeaking();
+  hideJumpPill();
   renderChatEmptyState();
 }
 
@@ -3830,6 +3889,17 @@ function wire(){
   $("chatInput").addEventListener("keydown", e => { if(e.key === "Enter") sendChat(); });
   $("newChat").addEventListener("click", newChat);
   $("exportChat").addEventListener("click", exportChat);
+  $("jumpToLatest").addEventListener("click", scrollChatToBottom);
+  {
+    const chat = $("chat");
+    if(chat){
+      let raf = 0;
+      chat.addEventListener("scroll", () => {
+        if(raf) return;
+        raf = requestAnimationFrame(() => { raf = 0; refreshJumpPill(); });
+      }, { passive:true });
+    }
+  }
 
   const mic = $("mic");
   mic.addEventListener("pointerdown", e => { e.preventDefault(); startListening(); });
