@@ -240,14 +240,16 @@
   }
   #term::-webkit-scrollbar-thumb:hover, #chat::-webkit-scrollbar-thumb:hover{ background:rgba(255,255,255,.12); background-clip:padding-box; border:2px solid transparent; }
 
-  .cmdbar{ display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--border); background:rgba(0,0,0,.15); }
+  .cmdbar{ display:flex; gap:10px; padding:10px 12px; border-top:1px solid var(--outline-var); background:var(--surface-cont-lowest); align-items:center; }
   .cmdbar input{
     flex:1; min-width:0;
-    background:var(--panel-2); border:1px solid var(--border);
-    border-radius:9px; padding:10px 12px; font-family:var(--mono); font-size:13px;
-    transition:border-color .15s, box-shadow .15s;
+    background:var(--surface-cont-high); border:none;
+    border-radius:999px; padding:11px 16px;
+    font-family:var(--mono); font-size:13px; color:var(--on-surface);
+    transition:background .15s, box-shadow .15s;
   }
-  .cmdbar input:focus{ outline:none; border-color:var(--teal); box-shadow:0 0 0 3px rgba(20,181,166,.15); }
+  .cmdbar input:hover{ background:var(--surface-cont-highest); }
+  .cmdbar input:focus{ outline:none; background:var(--surface-cont-highest); box-shadow:0 0 0 2px var(--primary); }
 
   /* ---------- Chat (right) ---------- */
   #chat{ flex:1 1 auto; min-height:0; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
@@ -277,14 +279,15 @@
   .run .go{ flex:0 0 auto; background:var(--copper); border:none; color:#241403; font-weight:700; padding:6px 12px; border-radius:7px; cursor:pointer; }
   .run.done .go{ background:var(--teal); color:#04211e; }
 
-  .chatbar{ display:flex; gap:10px; padding:12px; border-top:1px solid var(--border); align-items:center; background:rgba(0,0,0,.15); }
+  .chatbar{ display:flex; gap:10px; padding:12px; border-top:1px solid var(--outline-var); align-items:center; background:var(--surface-cont-lowest); }
   .chatbar input{
     flex:1; min-width:0;
-    background:var(--panel-2); border:1px solid var(--border);
-    border-radius:12px; padding:12px 14px; font-size:14px;
-    transition:border-color .15s, box-shadow .15s;
+    background:var(--surface-cont-high); border:none;
+    border-radius:999px; padding:13px 18px; font-size:14px; color:var(--on-surface);
+    transition:background .15s, box-shadow .15s;
   }
-  .chatbar input:focus{ outline:none; border-color:var(--teal); box-shadow:0 0 0 3px rgba(20,181,166,.15); }
+  .chatbar input:hover{ background:var(--surface-cont-highest); }
+  .chatbar input:focus{ outline:none; background:var(--surface-cont-highest); box-shadow:0 0 0 2px var(--primary); }
   /* Push-to-talk mic: hold to speak */
   #mic{
     flex:0 0 auto; width:48px; height:48px; border-radius:50%;
@@ -331,14 +334,34 @@
     display:block; font-size:11.5px; color:var(--dim); margin:14px 0 6px;
     letter-spacing:.5px; text-transform:uppercase; font-weight:600;
   }
+  /* M3 filled text fields — surface-container-highest tone, no border, animated
+     indicator line at the bottom on focus. Radius is rounded top only per spec. */
   .modal input, .modal select, .modal textarea{
-    width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text);
-    border-radius:10px; padding:11px 13px; font-size:13.5px; font-family:var(--mono);
-    transition:border-color .15s, box-shadow .15s;
+    width:100%;
+    background:var(--surface-cont-high);
+    border:none; border-bottom:1px solid var(--outline);
+    color:var(--on-surface);
+    border-radius:8px 8px 0 0;
+    padding:14px 14px 13px;
+    font-size:14px; font-family:var(--mono);
+    transition:background .15s, border-color .12s, box-shadow .12s;
   }
-  .modal textarea{ resize:vertical; min-height:96px; line-height:1.5; font-family:var(--sans); font-size:13px; }
+  .modal select{
+    appearance:none; -webkit-appearance:none;
+    background-image:linear-gradient(45deg, transparent 50%, var(--on-surface-var) 50%),
+                     linear-gradient(-45deg, transparent 50%, var(--on-surface-var) 50%);
+    background-position:calc(100% - 18px) 55%, calc(100% - 13px) 55%;
+    background-size:5px 5px, 5px 5px;
+    background-repeat:no-repeat;
+    padding-right:36px;
+  }
+  .modal textarea{ resize:vertical; min-height:96px; line-height:1.55; font-family:var(--sans); font-size:14px; border-radius:8px; border-bottom:1px solid var(--outline); }
+  .modal input:hover, .modal select:hover, .modal textarea:hover{ background:var(--surface-cont-highest); }
   .modal input:focus, .modal select:focus, .modal textarea:focus{
-    outline:none; border-color:var(--teal); box-shadow:0 0 0 3px rgba(20,181,166,.15);
+    outline:none;
+    background:var(--surface-cont-highest);
+    border-bottom-color:var(--primary);
+    box-shadow:inset 0 -2px 0 0 var(--primary);   /* the M3 focus indicator */
   }
   .presets{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .presets .btn{ font-size:12px; padding:7px 12px; border-radius:8px; }
