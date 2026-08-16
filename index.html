@@ -3822,6 +3822,10 @@ function boot(){
   }else{
     renderChatEmptyState();
   }
+  // Focus the chat input so the user can just start typing — but not on
+  // touch devices (would pop the on-screen keyboard immediately).
+  const hasTouch = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  if(!hasTouch){ const inp = $("chatInput"); if(inp) setTimeout(() => inp.focus({ preventScroll:true }), 60); }
 }
 if(typeof document !== "undefined" && document.getElementById && document.getElementById("term")){
   boot();
