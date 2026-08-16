@@ -1425,11 +1425,15 @@ function parseCodeBlocks(text){
   const re = /```([a-zA-Z0-9_+\-]*)\n?([\s\S]*?)```/g;
   let last = 0, m;
   while((m = re.exec(src)) !== null){
-    if(m.index > last){ const before = src.slice(last, m.index); if(before) out.push({ type:"text", text: before }); }
+    if(m.index > last){
+      const before = src.slice(last, m.index);
+      // Preserve real prose; strip pure-whitespace runs between adjacent fences.
+      if(before.trim()) out.push({ type:"text", text: before });
+    }
     out.push({ type:"code", lang: m[1] || "", text: m[2] });
     last = re.lastIndex;
   }
-  if(last < src.length){ const tail = src.slice(last); if(tail) out.push({ type:"text", text: tail }); }
+  if(last < src.length){ const tail = src.slice(last); if(tail.trim()) out.push({ type:"text", text: tail }); }
   return out.length ? out : [{ type:"text", text: src }];
 }
 
