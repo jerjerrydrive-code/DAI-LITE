@@ -2510,10 +2510,29 @@ async function connectUsb(){
     return;
   }
   try{
-    termLine("Requesting a USB serial device…", "sys");
-    // Filter to Flipper's USB VID (0x0483) but let the user pick anything by
-    // clicking "Show all" in the chooser if they use a different device.
-    serialPort = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x0483 }] });
+    // Return visits: if the browser already remembers a granted port, use
+    // it silently (no picker prompt). Prefer a Flipper by VID; else the
+    // single remembered port; else fall through to the picker.
+    let picked = null;
+    try{
+      if(navigator.serial.getPorts){
+        const granted = await navigator.serial.getPorts();
+        if(granted && granted.length){
+          picked = granted.find(p => {
+            const info = p.getInfo ? p.getInfo() : {};
+            return info && info.usbVendorId === 0x0483;
+          }) || (granted.length === 1 ? granted[0] : null);
+          if(picked) termLine("Reconnecting to previously-authorized USB device…", "sys");
+        }
+      }
+    }catch(_){ picked = null; }
+    if(!picked){
+      termLine("Requesting a USB serial device…", "sys");
+      // Filter to Flipper's USB VID (0x0483) but let the user pick anything by
+      // clicking "Show all" in the chooser if they use a different device.
+      picked = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x0483 }] });
+    }
+    serialPort = picked;
     await serialPort.open({ baudRate: 115200 });
     activeProfile = DEVICE_PROFILES.flipper;   // USB Flipper => text CLI
     activeTransport = "usb";
