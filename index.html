@@ -2845,7 +2845,10 @@ function buildPaletteActions(){
   acts.push({ label: "Easy setup — free AI & voice via Puter", hint:"", run: () => { openSettings(); setTimeout(easySetup, 40); } });
   acts.push({ label: (getSettings().mode === "dai" ? "Switch to Lite mode" : "Switch to Dai mode"), hint:"", run: () => setMode(getSettings().mode === "dai" ? "lite" : "dai") });
   acts.push({ label: "New chat (keep memory)", hint:"", run: () => newChat() });
+  acts.push({ label: "Save chat as text file", hint:"", run: () => exportChat() });
+  acts.push({ label: "Regenerate last reply", hint:"", run: () => regenerateLastReply() });
   acts.push({ label: "Send device output to AI", hint:"", run: () => sendCapturedOutput() });
+  acts.push({ label: "Copy terminal output", hint:"", run: () => copyTerminal() });
   acts.push({ label: "Clear terminal", hint:"", run: () => clearTerminal() });
   acts.push({ label: (muted ? "Unmute voice" : "Mute voice"), hint:"", run: () => $("muteBtn").click() });
   acts.push({ label: "Save memory to Flipper", hint:"SD", run: () => saveMemoryToFlipper() });
