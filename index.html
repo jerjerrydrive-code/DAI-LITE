@@ -871,7 +871,7 @@
 <div id="helpSheet" class="help-sheet" role="dialog" aria-label="Keyboard shortcuts" hidden>
   <div class="help-inner">
     <div class="help-title">Keyboard shortcuts</div>
-    <div class="help-row"><kbd>⌘K</kbd><kbd>Ctrl K</kbd><span>Command palette</span></div>
+    <div class="help-row"><kbd>⌘K</kbd><kbd>Ctrl K</kbd><kbd>/</kbd><span>Command palette</span></div>
     <div class="help-row"><kbd>?</kbd><span>Show / hide this sheet</span></div>
     <div class="help-row"><kbd>Esc</kbd><span>Close any overlay</span></div>
     <div class="help-row"><kbd>Enter</kbd><span>Send chat / command</span></div>
@@ -3838,7 +3838,8 @@ function wire(){
   });
   // Global keys: Ctrl/Cmd+K opens the command palette; Esc closes overlays.
   document.addEventListener("keydown", e => {
-    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k"){
+    // Ctrl/Cmd + K, and Ctrl/Cmd + / (matches VS Code / Slack conventions).
+    if((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K" || e.key === "/")){
       e.preventDefault();
       if($("paletteOverlay").classList.contains("show")) closePalette(); else openPalette();
       return;
