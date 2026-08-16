@@ -622,13 +622,37 @@
   /* ---------- Responsive: stack panels on narrow screens ---------- */
   @media (max-width: 820px){
     .brand h1{ font-size:14px; }
+    .brand small{ display:none; }
     .main{
-      grid-template-columns:1fr;      /* single column, stacked */
-      height:auto;                    /* let the page grow / scroll vertically */
+      grid-template-columns:1fr;
+      height:auto;
+      padding:8px; gap:8px;
     }
+    .panel{ border-radius:16px; }
     #term{ min-height:34vh; }
     #chat{ min-height:40vh; }
-    .status .txt{ display:none; }      /* keep the top bar compact on phones */
+    .status .txt{ display:none; }
+    header{ padding:10px 12px; gap:8px; }
+    #connectBtn span{ display:none; }              /* icon-only on tiny screens */
+    #connectBtn{ padding:9px 12px; }
+    .seg-btn{ padding:6px 12px; font-size:12.5px; }
+  }
+  /* Sub-480 = true phone: settings becomes a bottom sheet */
+  @media (max-width: 480px){
+    .overlay{ padding:0; align-items:flex-end; }
+    .modal{
+      max-width:100%; max-height:92vh;
+      border-radius:24px 24px 0 0;
+      padding:16px 18px 20px;
+      animation:sheet-in .28s cubic-bezier(.2,.9,.3,1.2);
+    }
+    @keyframes sheet-in{ from{ transform:translateY(30px); opacity:0; } to{ transform:none; opacity:1; } }
+    .modal::before{                                 /* grabber affordance */
+      content:""; display:block; width:36px; height:4px; border-radius:2px;
+      background:var(--outline-var); margin:2px auto 12px;
+    }
+    #paletteOverlay{ padding:16px; align-items:flex-start; }
+    .empty .hello{ font-size:24px; }
   }
 </style>
 </head>
