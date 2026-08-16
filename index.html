@@ -317,15 +317,30 @@
     30%{ transform:translateY(-4px); opacity:1; }
   }
 
-  /* A proposed command inside an AI message — never auto-runs. */
+  /* A proposed command inside an AI message — never auto-runs.
+     M3 tonal card: secondary-container tint, chip-shaped code, filled Run pill. */
   .run{
-    display:flex; align-items:center; gap:8px; margin-top:8px;
-    background:var(--panel-2); border:1px solid var(--copper);
-    border-radius:9px; padding:7px 8px;
+    display:flex; align-items:center; gap:10px; margin-top:10px;
+    background:color-mix(in oklab, var(--secondary-container), transparent 55%);
+    border:1px solid color-mix(in oklab, var(--secondary), transparent 60%);
+    border-radius:14px; padding:8px 8px 8px 14px;
   }
-  .run code{ flex:1; min-width:0; font-family:var(--mono); font-size:12.5px; color:var(--copper); overflow-x:auto; white-space:pre; }
-  .run .go{ flex:0 0 auto; background:var(--copper); border:none; color:#241403; font-weight:700; padding:6px 12px; border-radius:7px; cursor:pointer; }
-  .run.done .go{ background:var(--teal); color:#04211e; }
+  .run code{ flex:1; min-width:0; font-family:var(--mono); font-size:13px; color:var(--secondary); overflow-x:auto; white-space:pre; padding:4px 0; }
+  .run .go{
+    position:relative; overflow:hidden;
+    flex:0 0 auto; background:var(--secondary); border:none;
+    color:var(--on-secondary); font-weight:600; padding:8px 18px; border-radius:999px; cursor:pointer;
+    font-size:13px; letter-spacing:.1px;
+    display:inline-flex; align-items:center; gap:6px;
+    box-shadow:var(--elev-1); transition:box-shadow .18s;
+  }
+  .run .go::before{ content:""; position:absolute; inset:0; border-radius:inherit; background:currentColor; opacity:0; transition:opacity .12s; }
+  .run .go:hover{ box-shadow:var(--elev-2); }
+  .run .go:hover::before{ opacity:var(--state-hover); }
+  .run .go:active::before{ opacity:var(--state-press); }
+  .run.done{ border-color:color-mix(in oklab, var(--primary), transparent 60%); background:color-mix(in oklab, var(--primary-container), transparent 55%); }
+  .run.done code{ color:var(--primary); }
+  .run.done .go{ background:var(--primary); color:var(--on-primary); }
 
   .chatbar{ display:flex; gap:10px; padding:12px; border-top:1px solid var(--outline-var); align-items:center; background:var(--surface-cont-lowest); }
   .chatbar input{
