@@ -3908,7 +3908,14 @@ function setConnected(connected, name){
   const wasConnected = el.classList.contains("connected");
   document.body.classList.toggle("term-live", !!connected);
   el.classList.toggle("connected", connected);
-  el.querySelector(".txt").textContent = connected ? "Connected" : "Disconnected";
+  // Show the transport in the status text too — "USB · Connected", etc.
+  const transportLabel = { ble:"BLE", usb:"USB", ws:"WiFi" }[activeTransport] || "";
+  el.querySelector(".txt").textContent = connected
+    ? (transportLabel ? transportLabel + " · Connected" : "Connected")
+    : "Disconnected";
+  el.setAttribute("title", connected
+    ? "Connected via " + (transportLabel || "unknown transport") + (name ? " — " + name : "")
+    : "Not connected");
   $("devname").textContent = connected && name ? name : "";
   const chosen = getSettings().connection || "ble";
   const btn = $("connectBtn");
