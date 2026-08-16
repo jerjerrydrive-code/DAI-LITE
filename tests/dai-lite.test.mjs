@@ -239,6 +239,15 @@ test("splitSpeech breaks into sentences and caps long runs", () => {
   assert.deepEqual(D.splitSpeech(""), []);
 });
 
+test("classifySnackbar routes text to ok / error / info tones", () => {
+  assert.equal(D.classifySnackbar("Connected to Flipper Lafcide"), "ok");
+  assert.equal(D.classifySnackbar("USB write failed"), "error");
+  assert.equal(D.classifySnackbar("AI error 402"), "error");
+  assert.equal(D.classifySnackbar("Not connected"), "error");
+  assert.equal(D.classifySnackbar("Auto-send is on"), "info");
+  assert.equal(D.classifySnackbar(""), "info");
+});
+
 test("sanitizeFlipperCommand strips inline # / // comments the AI adds", () => {
   assert.equal(D.sanitizeFlipperCommand("vibro 1  # buzz the motor"), "vibro 1");
   assert.equal(D.sanitizeFlipperCommand("led r 255 // red LED"), "led r 255");
