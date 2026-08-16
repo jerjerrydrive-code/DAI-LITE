@@ -599,7 +599,7 @@ test("describeConnections reflects provider, voice engine, device, memory, mode"
   assert.match(by("ai").detail, /Puter \(free\) · gpt-4o-mini/);
   assert.match(by("voice").detail, /Puter/);
   assert.equal(by("device").ok, true);
-  assert.match(by("device").detail, /WiFi · Flipper Zero/);
+  assert.match(by("device").detail, /WiFi · CLI · Flipper Zero/);
   assert.match(by("memory").detail, /3 facts/);
   assert.match(by("mode").detail, /Dai/);
 });

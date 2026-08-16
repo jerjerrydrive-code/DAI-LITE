@@ -1215,7 +1215,9 @@ function describeConnections(settings, state){
       detail: s.baseUrl ? (providerName(s.baseUrl) + (s.model ? " · " + s.model : "")) : "not set — tap ⚡ Easy setup" },
     { key:"voice", label:"Voice", ok:voiceOk, detail: voiceLabel },
     { key:"device", label:"Device", ok:!!st.connected,
-      detail: st.connected ? ((st.transport === "ws" ? "WiFi" : "Bluetooth") + " · " + (st.deviceLabel || "")) : "not connected" },
+      detail: st.connected
+        ? ((st.transport === "ws" ? "WiFi" : "Bluetooth") + " · " + (st.protocol || "CLI") + " · " + (st.deviceLabel || ""))
+        : "not connected" },
     { key:"memory", label:"Memory", ok:true, detail: n ? (n + " fact" + (n === 1 ? "" : "s") + " remembered") : "empty" },
     { key:"mode", label:"Mode", ok:true, detail: (s.mode === "dai" ? "Dai — companion" : "Lite — Flipper co-pilot") }
   ];
@@ -2388,6 +2390,7 @@ function renderConnections(){
   const items = describeConnections(getSettings(), {
     connected: isConnected(),
     transport: activeTransport,
+    protocol: bleRpcMode ? "RPC" : "CLI",
     deviceLabel: activeProfile && activeProfile.label,
     memoryCount
   });
