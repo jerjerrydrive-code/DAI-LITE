@@ -1276,6 +1276,40 @@ function splitSpeech(text, maxLen){
   return parts;
 }
 
+/* Simple fuzzy match: returns null if not all query chars appear in order,
+   else a score (lower = better) and a mask of matched indices for highlighting. */
+function fuzzyMatch(needle, haystack){
+  const q = String(needle == null ? "" : needle).toLowerCase();
+  const h = String(haystack == null ? "" : haystack).toLowerCase();
+  if(!q) return { score:0, hits:[] };
+  const hits = []; let hi = 0, lastHit = -2, score = 0;
+  for(let qi = 0; qi < q.length; qi++){
+    const c = q[qi];
+    let found = -1;
+    while(hi < h.length){ if(h[hi] === c){ found = hi; hi++; break; } hi++; }
+    if(found < 0) return null;
+    hits.push(found);
+    // Reward consecutive hits and matches at word starts.
+    if(found === lastHit + 1) score -= 2;
+    if(found === 0 || /[\s_\-\/]/.test(h[found - 1])) score -= 3;
+    score += found - lastHit;
+    lastHit = found;
+  }
+  return { score, hits };
+}
+
+/* Rank a list of {label, ...} by fuzzy match against a query. Pure. */
+function rankPalette(items, query){
+  const q = String(query == null ? "" : query).trim();
+  if(!q) return items.slice();
+  const out = [];
+  for(const it of (items || [])){
+    const m = fuzzyMatch(q, (it && it.label) || "");
+    if(m) out.push({ ...it, _score: m.score, _hits: m.hits });
+  }
+  return out.sort((a, b) => a._score - b._score);
+}
+
 /* Pick a snackbar severity tone from a message string. Pure (testable). */
 function classifySnackbar(text){
   const s = String(text == null ? "" : text).toLowerCase();
@@ -1599,7 +1633,7 @@ if(typeof globalThis !== "undefined"){
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar
+    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar, fuzzyMatch, rankPalette
   };
 }
 

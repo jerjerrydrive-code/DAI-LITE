@@ -239,6 +239,28 @@ test("splitSpeech breaks into sentences and caps long runs", () => {
   assert.deepEqual(D.splitSpeech(""), []);
 });
 
+test("fuzzyMatch matches subsequences and returns null on miss", () => {
+  assert.equal(D.fuzzyMatch("", "anything").score, 0);
+  assert.equal(D.fuzzyMatch("xyz", "abcde"), null);
+  const m = D.fuzzyMatch("ctf", "connect to flipper");
+  assert.ok(m && m.hits.length === 3);
+  assert.deepEqual(m.hits.map(i => "connect to flipper"[i]), ["c", "t", "f"]);
+});
+
+test("rankPalette sorts prefix matches ahead of scattered matches", () => {
+  const items = [
+    { label: "Save memory to Flipper" },
+    { label: "Load memory from Flipper" },
+    { label: "Connect" },
+  ];
+  const r = D.rankPalette(items, "save");
+  assert.equal(r[0].label, "Save memory to Flipper");
+  const empty = D.rankPalette(items, "");
+  assert.equal(empty.length, 3);
+  const none = D.rankPalette(items, "zzz");
+  assert.equal(none.length, 0);
+});
+
 test("classifySnackbar routes text to ok / error / info tones", () => {
   assert.equal(D.classifySnackbar("Connected to Flipper Lafcide"), "ok");
   assert.equal(D.classifySnackbar("USB write failed"), "error");
