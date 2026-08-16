@@ -778,7 +778,7 @@ Type a command below or let the assistant propose one.
       <div class="cmdbar">
         <input id="cmdInput" placeholder="Manual command (↑/↓ for history)" autocomplete="off" spellcheck="false" />
         <button id="cmdSend" class="btn accent">Send</button>
-        <button id="toAiBtn" class="btn" title="Send the latest device output back to the assistant">→ AI</button>
+        <button id="toAiBtn" class="btn" title="Send the latest device output back to the assistant" style="display:none">→ AI</button>
       </div>
     </section>
 
@@ -2503,6 +2503,11 @@ let memorySyncing = false;  // suppress auto-send while syncing memory to/from t
 let autoSendCached = false;
 function refreshAutoSendCache(){ autoSendCached = getSettings().autoSendOutput; }
 function autoSendEnabled(){ return autoSendCached; }
+// Show/hide the "→ AI" button based on whether we have captured device output.
+function refreshToAiBtn(){
+  const b = $("toAiBtn"); if(!b) return;
+  b.style.display = (captureBuffer && captureBuffer.trim()) ? "" : "none";
+}
 // Called when a command is sent: start (or restart) the auto-send watch. If no
 // output ever arrives (e.g. a silent RPC Flipper), nothing is sent.
 function armAutoSend(){
@@ -2524,6 +2529,7 @@ function ingestText(text){
   gotAnyRx = true;
   termAppend(text, "rx");
   captureBuffer = appendCapture(captureBuffer, text);
+  refreshToAiBtn();
   // Debounce: once output has been quiet for ~1.2s, hand it to the assistant.
   if(awaitingAuto && autoSendEnabled() && !memorySyncing){
     clearTimeout(autoTimer);
@@ -2771,6 +2777,7 @@ function sendCapturedOutput(){
   conversation.push({ role:"user", content });
   // Render compactly so a big dump doesn't dominate the chat.
   addMessage("note", "Sent device output" + (lastCommand ? " for `" + lastCommand + "`" : "") + " to the assistant.");
+  captureBuffer = ""; refreshToAiBtn();   // consumed — hide the button again
   runAiTurn();
 }
 
@@ -3560,6 +3567,7 @@ function clearTerminal(){
   // the user just wiped from the screen.
   clearTimeout(autoTimer); awaitingAuto = false;
   captureBuffer = ""; lastCommand = "";
+  refreshToAiBtn();
   termLine("Terminal cleared.", "sys");
 }
 function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("chatInput").value = ""; askAI(v); }
