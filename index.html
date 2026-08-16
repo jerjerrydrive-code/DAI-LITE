@@ -2853,26 +2853,37 @@ function makeMsgActions(text, bubble, role){
 }
 
 /* Delete a chat bubble: remove from the DOM AND drop the matching entry from
-   the in-memory conversation, so it doesn't reappear on the next AI turn or
-   after a reload. Best-effort match by (role, exact content) — enough since
-   we're only comparing against the visible tail. */
-function deleteMessage(bubble, text, role){
+   the in-memory conversation. Matches by position (the k-th bubble of this
+   role in the chat corresponds to the k-th entry of the same role in the
+   conversation array) rather than by content, so repeating yourself doesn't
+   delete the wrong turn. */
+function deleteMessage(bubble, _text, role){
   if(!bubble) return;
-  bubble.remove();
   if(role === "assistant" || role === "user"){
-    for(let i = conversation.length - 1; i >= 0; i--){
-      if(conversation[i].role === role && conversation[i].content === text){
-        conversation.splice(i, 1); break;
+    const chat = $("chat");
+    const selector = role === "user" ? ".msg.user" : ".msg.ai";
+    let k = 0;
+    if(chat){
+      const bubbles = chat.querySelectorAll(selector);
+      for(const b of bubbles){ if(b === bubble) break; k++; }
+    }
+    // Find the k-th entry of this role in the conversation and drop it.
+    let seen = 0;
+    for(let i = 0; i < conversation.length; i++){
+      if(conversation[i].role === role){
+        if(seen === k){ conversation.splice(i, 1); break; }
+        seen++;
       }
     }
     try{ localStorage.setItem(CONVO_KEY, JSON.stringify(conversation.slice(-60))); }catch(_){}
-    // Keep the is-last-ai marker on whatever's now the newest assistant reply.
-    const chat = $("chat"); if(chat){
-      chat.querySelectorAll(".msg.ai.is-last-ai").forEach(n => n.classList.remove("is-last-ai"));
-      const bubbles = chat.querySelectorAll(".msg.ai");
-      const prev = bubbles[bubbles.length - 1];
-      if(prev) prev.classList.add("is-last-ai");
-    }
+  }
+  bubble.remove();
+  // Keep the is-last-ai marker on whatever's now the newest assistant reply.
+  const chat = $("chat"); if(chat){
+    chat.querySelectorAll(".msg.ai.is-last-ai").forEach(n => n.classList.remove("is-last-ai"));
+    const bubbles = chat.querySelectorAll(".msg.ai");
+    const prev = bubbles[bubbles.length - 1];
+    if(prev) prev.classList.add("is-last-ai");
   }
   snack("Message deleted.", "info");
 }
