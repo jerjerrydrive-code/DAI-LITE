@@ -142,16 +142,17 @@
   .brand small{ color:var(--copper); font-weight:500; margin-left:2px; letter-spacing:.3px; }
   .spacer{ flex:1 1 auto; }
 
+  /* M3 badge / small chip: subtle tonal background, currentColor dot. */
   .status{
     display:inline-flex; align-items:center; gap:8px;
-    font-size:12px; color:var(--muted);
-    padding:6px 12px; border:1px solid var(--border); border-radius:999px;
-    background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(0,0,0,.15));
-    white-space:nowrap; font-weight:500;
+    font-size:12px; color:var(--on-surface-var); font-weight:500;
+    padding:6px 12px 6px 10px; border:1px solid var(--outline-var); border-radius:999px;
+    background:var(--surface-cont-high);
+    white-space:nowrap;
   }
-  .dot{ width:8px; height:8px; border-radius:50%; background:var(--danger); box-shadow:0 0 10px currentColor; }
-  .status.connected{ color:var(--ok); border-color:rgba(74,222,128,.25); }
-  .status.connected .dot{ background:var(--ok); animation:pulse-dot 2s ease-in-out infinite; }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--error); box-shadow:0 0 8px currentColor; }
+  .status.connected{ color:var(--success); border-color:transparent; background:color-mix(in oklab, var(--success), transparent 88%); }
+  .status.connected .dot{ background:var(--success); animation:pulse-dot 2s ease-in-out infinite; }
   @keyframes pulse-dot{ 0%,100%{ opacity:1; } 50%{ opacity:.55; } }
 
   /* ---- Material 3 buttons ----
@@ -255,22 +256,26 @@
   .cmdbar input:focus{ outline:none; background:var(--surface-cont-highest); box-shadow:0 0 0 2px var(--primary); }
 
   /* ---------- Chat (right) ---------- */
-  #chat{ flex:1 1 auto; min-height:0; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
-  .msg{ max-width:88%; padding:11px 14px; border-radius:14px; font-size:14px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  /* M3 chat bubbles: user = primary-container (own side, more rounded), AI =
+     surface-container tone (other side). Asymmetric radius gives a "pointer". */
+  #chat{ flex:1 1 auto; min-height:0; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:14px; }
+  .msg{
+    max-width:82%; padding:12px 16px;
+    font-size:14px; line-height:1.55; white-space:pre-wrap; word-break:break-word;
+  }
   .msg.user{
     align-self:flex-end;
-    background:linear-gradient(135deg, var(--teal), var(--teal-dim));
-    color:#eafffb; border-bottom-right-radius:5px;
-    box-shadow:0 4px 14px -6px rgba(20,181,166,.4);
+    background:var(--primary-container); color:var(--on-primary-container);
+    border-radius:20px 20px 6px 20px;
   }
   .msg.ai{
     align-self:flex-start;
-    background:linear-gradient(180deg, #17242a, #131e22);
-    border:1px solid var(--border); border-bottom-left-radius:5px;
+    background:var(--surface-cont-high); color:var(--on-surface);
+    border-radius:20px 20px 20px 6px;
   }
-  .msg.note{ align-self:center; background:transparent; color:var(--dim); font-size:11.5px; text-align:center; max-width:100%; letter-spacing:.2px; }
-  .msg.err{ align-self:center; background:rgba(229,115,115,.1); border:1px solid rgba(229,115,115,.4); color:#ffb4ae; font-size:13px; }
-  .msg .role{ display:block; font-size:10px; letter-spacing:.9px; text-transform:uppercase; opacity:.6; margin-bottom:5px; font-weight:600; }
+  .msg.note{ align-self:center; background:transparent; color:var(--on-surface-dim); font-size:12px; text-align:center; max-width:100%; letter-spacing:.1px; padding:4px 12px; }
+  .msg.err{ align-self:center; background:var(--error-container); color:var(--on-primary); font-size:13px; border-radius:12px; padding:10px 14px; }
+  .msg .role{ display:block; font-size:10px; letter-spacing:1px; text-transform:uppercase; opacity:.75; margin-bottom:6px; font-weight:600; }
 
   /* A proposed command inside an AI message — never auto-runs. */
   .run{
@@ -391,16 +396,27 @@
   .inline{ display:flex; gap:8px; align-items:center; }
   .inline > input, .inline > select{ flex:1; min-width:0; }
   .inline > .btn{ flex:0 0 auto; white-space:nowrap; }
-  .check{ display:flex; align-items:flex-start; gap:9px; margin-top:14px; font-size:13px; color:var(--text); cursor:pointer; line-height:1.4; }
-  .check input{ width:auto; flex:0 0 auto; margin-top:2px; accent-color:var(--teal); }
-  .conn{ border:1px solid var(--border); border-radius:10px; background:var(--panel-2); padding:6px 10px; margin-bottom:12px; }
-  .conn-row{ display:flex; align-items:center; gap:9px; padding:5px 0; font-size:12.5px; }
-  .conn-row + .conn-row{ border-top:1px solid var(--border); }
-  .conn-dot{ width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
-  .conn-dot.ok{ background:var(--ok); box-shadow:0 0 6px var(--ok); }
-  .conn-dot.warn{ background:var(--copper); }
-  .conn-label{ font-weight:700; width:58px; flex:0 0 auto; color:var(--text); }
-  .conn-detail{ color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* M3 checkbox row (tap area, subtle hint text). */
+  .check{ display:flex; align-items:flex-start; gap:12px; margin-top:16px; font-size:14px; color:var(--on-surface); cursor:pointer; line-height:1.5; padding:8px 4px; border-radius:8px; transition:background .12s; }
+  .check:hover{ background:color-mix(in oklab, var(--on-surface), transparent 94%); }
+  .check input{ width:20px; height:20px; flex:0 0 auto; margin-top:1px; accent-color:var(--primary); cursor:pointer; }
+  /* Connections dashboard: M3 list-tile style. */
+  .conn{
+    border:none; border-radius:16px;
+    background:var(--surface-cont); padding:4px 8px; margin-bottom:12px;
+  }
+  .conn-row{
+    display:flex; align-items:center; gap:14px;
+    padding:12px 12px; font-size:13.5px; border-radius:12px;
+    transition:background .12s;
+  }
+  .conn-row + .conn-row{ margin-top:2px; }
+  .conn-row[style*="cursor:pointer"]:hover{ background:color-mix(in oklab, var(--on-surface), transparent 94%); }
+  .conn-dot{ width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
+  .conn-dot.ok{ background:var(--success); box-shadow:0 0 8px color-mix(in oklab, var(--success), transparent 50%); }
+  .conn-dot.warn{ background:var(--secondary); }
+  .conn-label{ font-weight:600; width:64px; flex:0 0 auto; color:var(--on-surface); font-size:13px; }
+  .conn-detail{ color:var(--on-surface-var); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
   /* M3 assist chips */
   .quick{ display:flex; gap:8px; padding:12px 16px 6px; overflow-x:auto; }
   .quick::-webkit-scrollbar{ height:0; }
