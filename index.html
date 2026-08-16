@@ -847,6 +847,10 @@
     <!-- RIGHT: AI voice / chat conversation -->
     <section class="panel">
       <div class="head"><span class="tag ai">Assistant</span><span id="modeTag" class="hint" style="text-transform:none;letter-spacing:0"></span><span class="spacer" style="flex:1"></span><span id="modelTag" class="model-tag" title="Active AI model"></span>
+        <button id="exportChat" class="btn head-btn" title="Download conversation as a text file" aria-label="Export chat">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          <span>Save</span>
+        </button>
         <button id="newChat" class="btn head-btn" title="Start a new conversation (keeps memory)" aria-label="New chat">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z"/></svg>
           <span>New</span>
@@ -2029,6 +2033,22 @@ function formatDeviceOutput(command, output){
   return head + "\n```\n" + body + "\n```";
 }
 
+/* Build the plain-text conversation dump used by the "Save" chat button.
+   Pure — takes {conversation, mode, at} and returns a string; no DOM. */
+function formatChatExport(convo, mode, at){
+  const arr = Array.isArray(convo) ? convo : [];
+  const when = (at instanceof Date && !isNaN(at)) ? at : new Date(0);
+  const modeLabel = mode === "dai" ? "Dai" : "Lite";
+  const header = "DAI-LITE chat export — " + modeLabel + " mode — " + when.toISOString() + "\n"
+               + "=".repeat(60) + "\n\n";
+  const body = arr.map(m => {
+    const role = m && m.role;
+    const who = role === "assistant" ? modeLabel : (role === "user" ? "You" : "System");
+    return "[" + who + "]\n" + String(m && m.content != null ? m.content : "").trim() + "\n";
+  }).join("\n");
+  return header + body;
+}
+
 /* Expose the pure logic for tests (and for tinkering from the browser console).
    Harmless in the browser; essential for /tests to exercise the shipped code. */
 if(typeof globalThis !== "undefined"){
@@ -2047,7 +2067,7 @@ if(typeof globalThis !== "undefined"){
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar, fuzzyMatch, rankPalette, parseCodeBlocks, stripAnsi
+    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar, fuzzyMatch, rankPalette, parseCodeBlocks, stripAnsi, formatChatExport
   };
 }
 
@@ -3741,6 +3761,22 @@ function newChat(){
   renderChatEmptyState();
 }
 
+function exportChat(){
+  if(!conversation || !conversation.length){ snack("Nothing to save yet — say hi first.", "info"); return; }
+  const stamp = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const ts = stamp.getFullYear() + pad(stamp.getMonth()+1) + pad(stamp.getDate())
+           + "-" + pad(stamp.getHours()) + pad(stamp.getMinutes()) + pad(stamp.getSeconds());
+  const text = formatChatExport(conversation, getSettings().mode, stamp);
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "dai-lite-chat-" + ts + ".txt";
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  snack("Saved " + conversation.length + " message" + (conversation.length === 1 ? "" : "s") + ".", "ok");
+}
+
 function renderChatEmptyState(){
   const chat = $("chat"); if(!chat) return;
   const mode = getSettings().mode;
@@ -3793,6 +3829,7 @@ function wire(){
   $("chatSend").addEventListener("click", sendChat);
   $("chatInput").addEventListener("keydown", e => { if(e.key === "Enter") sendChat(); });
   $("newChat").addEventListener("click", newChat);
+  $("exportChat").addEventListener("click", exportChat);
 
   const mic = $("mic");
   mic.addEventListener("pointerdown", e => { e.preventDefault(); startListening(); });

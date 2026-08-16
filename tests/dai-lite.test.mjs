@@ -247,6 +247,27 @@ test("fuzzyMatch matches subsequences and returns null on miss", () => {
   assert.deepEqual(m.hits.map(i => "connect to flipper"[i]), ["c", "t", "f"]);
 });
 
+test("formatChatExport renders a readable transcript for the Save button", () => {
+  const at = new Date("2026-08-16T12:34:56Z");
+  const convo = [
+    { role: "user", content: "hey" },
+    { role: "assistant", content: "hi there!" },
+    { role: "user", content: "  spaced out  " },
+  ];
+  const txt = D.formatChatExport(convo, "dai", at);
+  assert.ok(txt.includes("DAI-LITE chat export — Dai mode — 2026-08-16T12:34:56.000Z"));
+  assert.ok(txt.includes("[You]\nhey"));
+  assert.ok(txt.includes("[Dai]\nhi there!"));
+  // whitespace-only content is trimmed
+  assert.ok(txt.includes("[You]\nspaced out"));
+  // Lite mode labels the assistant differently
+  const lite = D.formatChatExport([{ role: "assistant", content: "ready" }], "lite", at);
+  assert.ok(lite.includes("[Lite]\nready"));
+  // Robust against garbage input
+  assert.equal(typeof D.formatChatExport(null, "dai", at), "string");
+  assert.equal(typeof D.formatChatExport([], "dai", null), "string");
+});
+
 test("stripAnsi cleans up common CSI colour codes + BEL noise", () => {
   // Real Flipper-firmware output the user pasted in their terminal:
   const src = "\x1b[38;2;255;130;0mWelcome to Flipper\x1b[0m\r\n";
