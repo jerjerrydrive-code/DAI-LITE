@@ -219,17 +219,32 @@
   .run .go{ flex:0 0 auto; background:var(--copper); border:none; color:#241403; font-weight:700; padding:6px 12px; border-radius:7px; cursor:pointer; }
   .run.done .go{ background:var(--teal); color:#04211e; }
 
-  .chatbar{ display:flex; gap:8px; padding:8px; border-top:1px solid var(--border); align-items:center; }
+  .chatbar{ display:flex; gap:10px; padding:12px; border-top:1px solid var(--border); align-items:center; background:rgba(0,0,0,.15); }
   .chatbar input{
     flex:1; min-width:0;
-    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
-    border-radius:8px; padding:11px 12px; font-size:14px;
+    background:var(--panel-2); border:1px solid var(--border);
+    border-radius:12px; padding:12px 14px; font-size:14px;
+    transition:border-color .15s, box-shadow .15s;
   }
-  .chatbar input:focus{ outline:none; border-color:var(--teal); }
+  .chatbar input:focus{ outline:none; border-color:var(--teal); box-shadow:0 0 0 3px rgba(20,181,166,.15); }
   /* Push-to-talk mic: hold to speak */
-  #mic{ flex:0 0 auto; width:46px; height:46px; border-radius:50%; display:grid; place-items:center; font-size:18px; user-select:none; touch-action:none; }
-  #mic.listening{ background:var(--copper); border-color:var(--copper); color:#241403; animation:pulse 1s infinite; }
-  @keyframes pulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(232,163,61,.5);} 50%{ box-shadow:0 0 0 8px rgba(232,163,61,0);} }
+  #mic{
+    flex:0 0 auto; width:48px; height:48px; border-radius:50%;
+    display:grid; place-items:center; font-size:18px;
+    user-select:none; touch-action:none;
+    background:var(--panel-2); border:1px solid var(--border);
+    transition:transform .1s, background .15s;
+  }
+  #mic:hover{ background:var(--panel-hi); transform:scale(1.03); }
+  #mic.listening{
+    background:linear-gradient(135deg, var(--copper), var(--copper-dim));
+    border-color:var(--copper); color:#241403;
+    animation:pulse 1.4s ease-out infinite;
+  }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(240,180,107,.55);}
+    100%{ box-shadow:0 0 0 14px rgba(240,180,107,0);}
+  }
 
   /* ---------- Modal (settings + safety notice) ---------- */
   .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.68); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
@@ -262,9 +277,16 @@
   .conn-dot.warn{ background:var(--copper); }
   .conn-label{ font-weight:700; width:58px; flex:0 0 auto; color:var(--text); }
   .conn-detail{ color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .quick{ display:flex; gap:6px; padding:6px 8px 0; overflow-x:auto; }
-  .quick .chip{ flex:0 0 auto; font-size:11px; padding:5px 9px; border:1px solid var(--border); border-radius:14px; background:var(--panel-2); color:var(--muted); cursor:pointer; white-space:nowrap; font-family:var(--mono); }
-  .quick .chip:hover{ border-color:var(--teal); color:var(--text); }
+  .quick{ display:flex; gap:6px; padding:10px 12px 4px; overflow-x:auto; }
+  .quick::-webkit-scrollbar{ height:0; }
+  .quick .chip{
+    flex:0 0 auto; font-size:11.5px; padding:5px 11px;
+    border:1px solid var(--border); border-radius:999px;
+    background:rgba(255,255,255,.02); color:var(--muted); cursor:pointer;
+    white-space:nowrap; font-family:var(--mono);
+    transition:border-color .15s, color .15s, background .15s;
+  }
+  .quick .chip:hover{ border-color:var(--teal); color:var(--text); background:rgba(20,181,166,.08); }
   .warn-box{ background:rgba(232,163,61,.08); border:1px solid var(--copper); border-radius:10px; padding:12px; margin:12px 0; }
   .warn-box strong{ color:var(--copper); }
   .cors{ margin-top:14px; border:1px solid var(--border); border-radius:9px; padding:8px 10px; background:var(--panel-2); }
