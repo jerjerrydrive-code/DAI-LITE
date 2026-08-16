@@ -802,6 +802,10 @@
     #connectBtn span{ display:none; }              /* icon-only on tiny screens */
     #connectBtn{ padding:9px 12px; }
     .seg-btn{ padding:6px 12px; font-size:12.5px; }
+    /* Panel-header buttons collapse to icons on narrow screens so 4 chips fit. */
+    .btn.head-btn span{ display:none; }
+    .btn.head-btn{ padding:6px 8px; }
+    .btn.head-btn svg{ width:16px; height:16px; }
   }
   /* A11y: respect prefers-reduced-motion — kill non-essential animation/transition */
   @media (prefers-reduced-motion: reduce){
