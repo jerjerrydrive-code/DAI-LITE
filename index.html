@@ -3087,6 +3087,13 @@ function addMessage(role, content){
   // Always follow the user's own turn; for others, only if already near bottom.
   const shouldFollow = role === "user" || chatNearBottom(chat);
   const div = document.createElement("div");
+  // Stamp a local send-time as tooltip — plenty for casual "when was this said"
+  // without needing a relative-time updater.
+  const stamp = new Date();
+  const hh = String(stamp.getHours()).padStart(2, "0");
+  const mm = String(stamp.getMinutes()).padStart(2, "0");
+  div.setAttribute("data-ts", stamp.toISOString());
+  div.setAttribute("title", hh + ":" + mm + "  ·  " + stamp.toLocaleDateString());
   if(role === "user"){
     div.className = "msg user";
     div.appendChild(roleTag("You"));
