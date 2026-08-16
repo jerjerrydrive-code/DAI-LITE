@@ -277,6 +277,21 @@
   /* on-error-container isn't a token here — the error is dark, so text must be light. */
   .msg.err{ align-self:center; background:var(--error-container); color:var(--error); font-size:13px; border-radius:12px; padding:10px 14px; }
   .msg .role{ display:block; font-size:10px; letter-spacing:1px; text-transform:uppercase; opacity:.75; margin-bottom:6px; font-weight:600; }
+  /* Message hover-reveal actions (copy button on AI messages). */
+  .msg{ position:relative; }
+  .msg-actions{
+    position:absolute; top:6px; right:6px; display:flex; gap:4px;
+    opacity:0; transition:opacity .15s;
+  }
+  .msg:hover .msg-actions, .msg:focus-within .msg-actions{ opacity:1; }
+  .msg-actions button{
+    background:var(--surface-cont-highest); color:var(--on-surface-var);
+    border:none; border-radius:8px; padding:5px 7px; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:background .12s, color .12s;
+  }
+  .msg-actions button:hover{ background:var(--surface-bright); color:var(--on-surface); }
+  .msg-actions button.done{ background:var(--primary-container); color:var(--on-primary-container); }
   /* Empty state — big welcome + suggestion chips for first-run / New chat. */
   .empty{
     align-self:stretch; text-align:center;
@@ -2356,6 +2371,30 @@ function onDeviceData(event){
 /* ---- Chat rendering ---- */
 function roleTag(t){ const s = document.createElement("span"); s.className="role"; s.textContent=t; return s; }
 
+// Hover-reveal copy button for an assistant message.
+function makeMsgActions(text){
+  const wrap = document.createElement("div");
+  wrap.className = "msg-actions";
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.title = "Copy message"; btn.setAttribute("aria-label", "Copy message");
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>';
+  btn.addEventListener("click", async () => {
+    try{
+      const src = stripRunLines(text);
+      if(navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(src);
+      else {
+        const ta = document.createElement("textarea"); ta.value = src; document.body.appendChild(ta);
+        ta.select(); try{ document.execCommand("copy"); }catch(_){} ta.remove();
+      }
+      btn.classList.add("done");
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+      setTimeout(() => { btn.classList.remove("done"); btn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>'; }, 1600);
+    }catch(_){}
+  });
+  wrap.appendChild(btn);
+  return wrap;
+}
+
 /* ---- Command palette (Ctrl+K / Cmd+K) ---- */
 let paletteItems = [];   // rebuilt on open so status ("Connect" / "Disconnect") reflects reality
 let paletteActive = 0;
@@ -2447,7 +2486,6 @@ function addMessage(role, content){
   }else if(role === "assistant"){
     div.className = "msg ai";
     div.appendChild(roleTag("DAI-LITE"));
-    // Use the tested parser, then render each segment.
     for(const seg of parseAssistant(content)){
       if(seg.type === "text"){
         const p = document.createElement("div");
@@ -2457,6 +2495,7 @@ function addMessage(role, content){
         div.appendChild(makeRunRow(seg.command));
       }
     }
+    div.appendChild(makeMsgActions(content));
   }else if(role === "error"){
     div.className = "msg err";
     div.textContent = content;
@@ -2670,6 +2709,7 @@ function startAssistantBubble(){
           div.appendChild(makeRunRow(seg.command));
         }
       }
+      div.appendChild(makeMsgActions(text));
       follow();
     }
   };
