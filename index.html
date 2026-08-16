@@ -693,6 +693,26 @@
   .kbd-hint svg{ opacity:.7; }
   @media (max-width: 820px){ .kbd-hint span, .kbd-hint kbd{ display:none; } .kbd-hint{ padding:8px; } }
 
+  /* Keyboard shortcuts help sheet — bottom-right small floating card */
+  .help-sheet{
+    display:none; position:fixed; right:16px; bottom:16px; z-index:58;
+    max-width:340px; width:calc(100% - 32px);
+    background:var(--surface-cont-high); border:1px solid var(--outline-var);
+    border-radius:16px; padding:16px 18px; color:var(--on-surface);
+    box-shadow:var(--elev-3); animation:modal-in .18s cubic-bezier(.2,.9,.3,1.2);
+  }
+  .help-sheet.show{ display:block; }
+  .help-sheet[hidden]{ display:none; }
+  .help-title{ font-size:14px; font-weight:700; margin-bottom:10px; }
+  .help-row{ display:flex; align-items:center; gap:8px; font-size:13px; padding:5px 0; color:var(--on-surface-var); }
+  .help-row span{ margin-left:auto; }
+  .help-sheet kbd{
+    background:var(--surface-cont-lowest); color:var(--on-surface);
+    padding:2px 7px; border-radius:6px; font-family:var(--sans); font-size:11px;
+    border:1px solid var(--outline-var); font-weight:600;
+  }
+  .help-close{ margin-top:10px; font-size:11px; color:var(--on-surface-dim); text-align:center; }
+
   /* ---------- Snackbar (M3 toast, bottom-center) ---------- */
   #snacks{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:60; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; max-width:calc(100% - 32px); }
   .snack{
@@ -844,6 +864,19 @@
 
 <!-- ================= SETTINGS MODAL ================= -->
 <div id="snacks" aria-live="polite" aria-atomic="true"></div>
+
+<div id="helpSheet" class="help-sheet" role="dialog" aria-label="Keyboard shortcuts" hidden>
+  <div class="help-inner">
+    <div class="help-title">Keyboard shortcuts</div>
+    <div class="help-row"><kbd>⌘K</kbd><kbd>Ctrl K</kbd><span>Command palette</span></div>
+    <div class="help-row"><kbd>?</kbd><span>Show / hide this sheet</span></div>
+    <div class="help-row"><kbd>Esc</kbd><span>Close any overlay</span></div>
+    <div class="help-row"><kbd>Enter</kbd><span>Send chat / command</span></div>
+    <div class="help-row"><kbd>↑</kbd><kbd>↓</kbd><span>Terminal command history</span></div>
+    <div class="help-row"><kbd>Hold 🎙️</kbd><span>Push-to-talk</span></div>
+    <div class="help-close hint">Press <kbd>?</kbd> or <kbd>Esc</kbd> to close</div>
+  </div>
+</div>
 
 <div id="paletteOverlay" role="dialog" aria-label="Command palette">
   <div class="palette">
@@ -3810,6 +3843,12 @@ function wire(){
     if(e.key === "Escape"){
       $("settingsOverlay").classList.remove("show");
       $("paletteOverlay").classList.remove("show");
+      const hs = $("helpSheet"); if(hs) hs.classList.remove("show");
+    }
+    // ? shows the keyboard-shortcut sheet (unless typing in a field).
+    if(e.key === "?" && !/^(input|textarea)$/i.test((e.target && e.target.tagName) || "")){
+      e.preventDefault();
+      const hs = $("helpSheet"); if(hs) hs.classList.toggle("show");
     }
   });
   // Palette input: arrow-nav + enter to run.
