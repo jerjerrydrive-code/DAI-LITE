@@ -152,28 +152,49 @@
   .status.connected .dot{ background:var(--ok); animation:pulse-dot 2s ease-in-out infinite; }
   @keyframes pulse-dot{ 0%,100%{ opacity:1; } 50%{ opacity:.55; } }
 
+  /* ---- Material 3 buttons ----
+     Outlined by default (matches most existing .btn usage). Layered state:
+     ::before is the state-layer overlay that appears on hover/press using
+     the button's own colour. Rounded-full is the M3 button shape. */
   .btn{
-    border:1px solid var(--border); background:var(--panel-2); color:var(--text);
-    padding:8px 14px; border-radius:9px; cursor:pointer; font-size:13px; font-weight:500;
-    transition:background .15s, border-color .15s, color .15s, transform .05s;
-    letter-spacing:.1px;
+    position:relative; overflow:hidden;
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    border:1px solid var(--outline-var); background:transparent; color:var(--on-surface);
+    padding:9px 18px; border-radius:999px;
+    cursor:pointer; font-size:13.5px; font-weight:500; letter-spacing:.1px;
+    transition:border-color .18s cubic-bezier(.2,0,0,1), box-shadow .18s;
+    -webkit-tap-highlight-color:transparent; user-select:none;
   }
-  .btn:hover{ background:var(--panel-hi); border-color:var(--border-hi); }
-  .btn:active{ transform:translateY(1px); }
+  .btn::before{
+    content:""; position:absolute; inset:0; border-radius:inherit;
+    background:currentColor; opacity:0; pointer-events:none;
+    transition:opacity .12s cubic-bezier(.2,0,0,1);
+  }
+  .btn:hover::before{ opacity:var(--state-hover); }
+  .btn:focus-visible{ outline:none; }
+  .btn:focus-visible::before{ opacity:var(--state-focus); }
+  .btn:active::before{ opacity:var(--state-press); }
+  .btn:disabled{ opacity:.38; cursor:not-allowed; pointer-events:none; }
+
+  /* Filled (primary): the M3 "filled" tonal container button. */
   .btn.primary{
-    background:linear-gradient(180deg, var(--teal-hi), var(--teal));
-    border-color:var(--teal); color:#052120; font-weight:600;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 4px 12px -6px rgba(20,181,166,.6);
+    background:var(--primary); color:var(--on-primary);
+    border-color:transparent; font-weight:600;
+    box-shadow:var(--elev-1);
   }
-  .btn.primary:hover{
-    background:linear-gradient(180deg, #3ee0cc, var(--teal-hi));
-    border-color:var(--teal-hi);
+  .btn.primary:hover{ box-shadow:var(--elev-2); }
+  /* Tonal accent (secondary container). */
+  .btn.accent{
+    background:var(--secondary-container); color:var(--on-secondary-container);
+    border-color:transparent;
   }
-  .btn.icon{ padding:7px 10px; }
-  .btn.accent{ border-color:rgba(240,180,107,.4); color:var(--copper); background:rgba(240,180,107,.05); }
-  .btn.accent:hover{ background:rgba(240,180,107,.12); border-color:var(--copper); }
-  .btn:disabled{ opacity:.4; cursor:not-allowed; }
-  .btn.on{ background:linear-gradient(180deg, #f4c483, var(--copper)); border-color:var(--copper); color:#241403; }
+  /* Icon: circular. */
+  .btn.icon{ padding:0; width:40px; height:40px; }
+  /* Toggled "on" state (M3 selected). */
+  .btn.on{
+    background:var(--secondary); color:var(--on-secondary); border-color:transparent;
+    box-shadow:var(--elev-1);
+  }
 
   /* ---------- Main two-panel layout ---------- */
   .main{
