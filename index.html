@@ -277,6 +277,32 @@
   /* on-error-container isn't a token here — the error is dark, so text must be light. */
   .msg.err{ align-self:center; background:var(--error-container); color:var(--error); font-size:13px; border-radius:12px; padding:10px 14px; }
   .msg .role{ display:block; font-size:10px; letter-spacing:1px; text-transform:uppercase; opacity:.75; margin-bottom:6px; font-weight:600; }
+  /* Empty state — big welcome + suggestion chips for first-run / New chat. */
+  .empty{
+    align-self:stretch; text-align:center;
+    padding:32px 20px 12px;
+    color:var(--on-surface-var);
+    animation:empty-in .5s cubic-bezier(.2,.9,.3,1.2);
+  }
+  @keyframes empty-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+  .empty .hello{
+    font-size:28px; font-weight:700; letter-spacing:-.4px;
+    background:linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    margin-bottom:6px;
+  }
+  .empty .sub{ font-size:13.5px; margin-bottom:20px; max-width:400px; margin-left:auto; margin-right:auto; line-height:1.5; }
+  .empty .suggest{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; max-width:520px; margin:0 auto; }
+  .empty .suggest button{
+    background:var(--surface-cont-high); color:var(--on-surface);
+    border:1px solid var(--outline-var); border-radius:14px;
+    padding:12px 16px; font-size:13px; font-family:inherit; cursor:pointer;
+    transition:background .12s, border-color .12s, transform .05s;
+    max-width:100%; text-align:left; line-height:1.4;
+  }
+  .empty .suggest button:hover{ background:var(--surface-cont-highest); border-color:var(--outline); }
+  .empty .suggest button:active{ transform:scale(.98); }
+
   /* Typing indicator (three bouncing dots) — used for the "…thinking" bubble. */
   .typing{ display:inline-flex; align-items:center; gap:5px; padding:4px 2px; }
   .typing span{
@@ -1799,6 +1825,9 @@ function setMode(mode){
 }
 function updateModeUI(){
   const dai = getSettings().mode === "dai";
+  // Refresh the empty state so its persona + suggestions match the new mode.
+  const chat = $("chat"), existing = chat && chat.querySelector(".empty");
+  if(existing){ existing.remove(); renderChatEmptyState(); }
   const lite = $("modeLite"), daiBtn = $("modeDai");
   if(lite && daiBtn){
     lite.setAttribute("aria-selected", dai ? "false" : "true");
@@ -2389,6 +2418,8 @@ function snack(text, tone, ms){
 
 function addMessage(role, content){
   const chat = $("chat"); if(!chat) return null;
+  // First real message removes the empty-state welcome card.
+  const empty = chat.querySelector(".empty"); if(empty) empty.remove();
   const div = document.createElement("div");
   if(role === "user"){
     div.className = "msg user";
@@ -3266,11 +3297,36 @@ function renderQuickCommands(){
   });
 }
 function newChat(){
-  if(aiBusy){ addMessage("note", "Finishing the current reply — tap New chat again in a moment."); return; }
+  if(aiBusy){ snack("Finishing the current reply — tap New chat again in a moment.", "info"); return; }
   conversation = [];                 // fresh context; long-term memory is untouched
   const chat = $("chat"); if(chat) chat.textContent = "";
   stopSpeaking();
-  addMessage("note", "New conversation. Memory is kept — say hi.");
+  renderChatEmptyState();
+}
+
+function renderChatEmptyState(){
+  const chat = $("chat"); if(!chat) return;
+  const mode = getSettings().mode;
+  const suggestions = mode === "dai"
+    ? ["What can you remember about me?", "Let's brainstorm a project idea", "Give me a quick joke", "How's my Flipper looking?"]
+    : ["What are Flipper CLI commands I should know?", "Write a DuckyScript that opens Notepad", "Explain SubGHz basics", "Read my Flipper's device_info"];
+  const el = document.createElement("div");
+  el.className = "empty";
+  el.innerHTML =
+    '<div class="hello">' + (mode === "dai" ? "Hey, I'm Dai." : "DAI-LITE ready.") + '</div>' +
+    '<div class="sub">' +
+      (mode === "dai"
+        ? "Your daily companion. Ask me anything, or connect the Flipper for hardware work."
+        : "Coding co-pilot for the Flipper Zero. Connect a device, then ask.") +
+    ' Tap <kbd style="font-family:inherit;background:var(--surface-cont-highest);padding:2px 6px;border-radius:5px;font-size:11px;">⌘K</kbd> for the command palette.</div>' +
+    '<div class="suggest"></div>';
+  const suggestBox = el.querySelector(".suggest");
+  suggestions.forEach(text => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = text;
+    b.addEventListener("click", () => { $("chatInput").value = text; sendChat(); });
+    suggestBox.appendChild(b);
+  });
+  chat.appendChild(el);
 }
 
 /* ---- Wiring ---- */
@@ -3421,7 +3477,7 @@ function boot(){
   updateModeUI();
   renderQuickCommands();
   maybeShowSafety();
-  addMessage("note", "Hold 🎙️ to talk, or type below. Pick your AI provider and device in ⚙️ Settings, then Connect. Device type defaults to Auto-detect.");
+  renderChatEmptyState();
 }
 if(typeof document !== "undefined" && document.getElementById && document.getElementById("term")){
   boot();
