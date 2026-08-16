@@ -196,6 +196,14 @@
     text-transform:none;
   }
   .btn.head-btn svg{ opacity:.75; }
+  .model-tag{
+    font-size:10.5px; letter-spacing:.5px; text-transform:none;
+    color:var(--on-surface-dim); font-family:var(--mono);
+    padding:3px 8px; border:1px solid var(--outline-var); border-radius:999px;
+    background:var(--surface-cont-lowest); max-width:180px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;
+  }
+  .model-tag:empty{ display:none; }
   /* Tonal accent (secondary container). */
   .btn.accent{
     background:var(--secondary-container); color:var(--on-secondary-container);
@@ -784,7 +792,7 @@ Type a command below or let the assistant propose one.
 
     <!-- RIGHT: AI voice / chat conversation -->
     <section class="panel">
-      <div class="head"><span class="tag ai">Assistant</span><span id="modeTag" class="hint" style="text-transform:none;letter-spacing:0"></span><span class="spacer" style="flex:1"></span>
+      <div class="head"><span class="tag ai">Assistant</span><span id="modeTag" class="hint" style="text-transform:none;letter-spacing:0"></span><span class="spacer" style="flex:1"></span><span id="modelTag" class="model-tag" title="Active AI model"></span>
         <button id="newChat" class="btn head-btn" title="Start a new conversation (keeps memory)" aria-label="New chat">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z"/></svg>
           <span>New</span>
@@ -2022,8 +2030,17 @@ function setMode(mode){
   try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }catch(_){}
   updateModeUI();
 }
+function updateModelTag(){
+  const t = $("modelTag"); if(!t) return;
+  const s = getSettings();
+  const model = s.model || "";
+  const prov = s.baseUrl ? providerName(s.baseUrl) : "";
+  t.textContent = model ? (model + (prov ? " · " + prov : "")) : "";
+}
+
 function updateModeUI(){
   const dai = getSettings().mode === "dai";
+  updateModelTag();
   // Refresh the empty state so its persona + suggestions match the new mode.
   const chat = $("chat"), existing = chat && chat.querySelector(".empty");
   if(existing){ existing.remove(); renderChatEmptyState(); }
@@ -3409,6 +3426,7 @@ function saveSettings(){
   refreshAutoSendCache();
   updateDeviceLabel();
   setConnected(isConnected(), device && device.name);   // refresh Connect button icon
+  updateModelTag();
 }
 
 /* ---- Voice settings UI ---- */
