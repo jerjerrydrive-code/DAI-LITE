@@ -314,6 +314,14 @@
   .code-block:hover .copy-code, .code-block:focus-within .copy-code{ opacity:1; }
   .code-block .copy-code:hover{ background:var(--surface-bright); color:var(--on-surface); }
   .code-block .copy-code.done{ background:var(--primary-container); color:var(--on-primary-container); opacity:1; }
+  /* Inline markdown */
+  .msg strong{ font-weight:700; color:var(--on-surface); }
+  .msg em{ font-style:italic; color:var(--on-surface); }
+  .msg .inline-code{
+    font-family:var(--mono); font-size:12.5px;
+    background:color-mix(in oklab, var(--on-surface), transparent 90%);
+    padding:1px 6px; border-radius:6px; color:var(--secondary);
+  }
   /* When copy shows, hide the lang tag underneath (they share the same corner). */
   .code-block:hover .code-block-lang, .code-block:focus-within .code-block-lang{ display:none; }
   /* Message hover-reveal actions (copy button on AI messages). */
@@ -1428,6 +1436,32 @@ function extractDelta(data){
           data.choices[0].delta.content) || "";
 }
 
+/* Render inline markdown ( **bold**, *italic*, `inline code` ) safely into a
+   given DOM element. XSS-safe — only textContent goes in, no innerHTML for
+   user-generated content. */
+function renderInlineMd(parent, text){
+  const src = String(text == null ? "" : text);
+  // Tokens are `code` first (highest precedence), then **bold**, then *italic*.
+  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)/g;
+  let last = 0, m;
+  while((m = re.exec(src)) !== null){
+    if(m.index > last){ parent.appendChild(document.createTextNode(src.slice(last, m.index))); }
+    if(m[1]){                                // `code`
+      const el = document.createElement("code");
+      el.className = "inline-code"; el.textContent = m[1].slice(1, -1);
+      parent.appendChild(el);
+    }else if(m[2]){                          // **bold**
+      const el = document.createElement("strong"); el.textContent = m[2].slice(2, -2);
+      parent.appendChild(el);
+    }else if(m[3]){                          // *italic*
+      const el = document.createElement("em"); el.textContent = m[3].slice(1, -1);
+      parent.appendChild(el);
+    }
+    last = re.lastIndex;
+  }
+  if(last < src.length) parent.appendChild(document.createTextNode(src.slice(last)));
+}
+
 /* Split a text segment into inline text and ```code blocks``` (returns an array
    of {type:"text"|"code", text, lang?}). The parser lives inside parseAssistant
    so the same segment shapes flow through the renderer. */
@@ -2501,7 +2535,7 @@ function renderTextWithCodeBlocks(parent, text){
       const t = String(part.text || "").trim();
       if(!t){ continue; }
       const p = document.createElement("div");
-      p.textContent = part.text;
+      renderInlineMd(p, part.text);   // **bold**, *italic*, `inline code`
       parent.appendChild(p);
     }else{
       const box = document.createElement("pre");
