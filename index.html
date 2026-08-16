@@ -3908,11 +3908,11 @@ function setConnected(connected, name){
   const wasConnected = el.classList.contains("connected");
   document.body.classList.toggle("term-live", !!connected);
   el.classList.toggle("connected", connected);
-  // Show the transport in the status text too — "USB · Connected", etc.
+  // Per the spec, the pill deliberately hides the transport — "Connected" is
+  // enough for the user; which pipe is under it is metadata for the tooltip
+  // (and the Connections panel, which surfaces it as data).
+  el.querySelector(".txt").textContent = connected ? "Connected" : "Disconnected";
   const transportLabel = { ble:"BLE", usb:"USB", ws:"WiFi" }[activeTransport] || "";
-  el.querySelector(".txt").textContent = connected
-    ? (transportLabel ? transportLabel + " · Connected" : "Connected")
-    : "Disconnected";
   el.setAttribute("title", connected
     ? "Connected via " + (transportLabel || "unknown transport") + (name ? " — " + name : "")
     : "Not connected");
