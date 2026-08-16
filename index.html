@@ -189,6 +189,13 @@
   .btn.primary:hover{ box-shadow:var(--elev-2); }
   .btn svg{ flex:0 0 auto; }
   #connectBtn span{ padding-right:2px; }
+  /* Small panel-head action button (New, Clear). Compact, mono for label. */
+  .btn.head-btn{
+    padding:5px 10px 5px 9px; font-size:11.5px; letter-spacing:.4px;
+    border-radius:999px; color:var(--on-surface-var);
+    text-transform:none;
+  }
+  .btn.head-btn svg{ opacity:.75; }
   /* Tonal accent (secondary container). */
   .btn.accent{
     background:var(--secondary-container); color:var(--on-secondary-container);
@@ -694,7 +701,10 @@
         <span class="tag" id="devTag">Flipper CLI</span>
         <span class="spacer" style="flex:1"></span>
         <span id="devname" style="text-transform:none;letter-spacing:0"></span>
-        <button id="termClear" class="btn icon" title="Clear the terminal" style="padding:3px 8px;font-size:11px">Clear</button>
+        <button id="termClear" class="btn head-btn" title="Clear the terminal" aria-label="Clear terminal">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0M4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53l-6.36-6.36l-3.54 3.53c-.78.79-.78 2.04 0 2.83z"/></svg>
+          <span>Clear</span>
+        </button>
       </div>
       <pre id="term"><span class="sys">DAI-LITE terminal ready. Connect a device to begin.
 Type a command below or let the assistant propose one.
@@ -709,7 +719,12 @@ Type a command below or let the assistant propose one.
 
     <!-- RIGHT: AI voice / chat conversation -->
     <section class="panel">
-      <div class="head"><span class="tag ai">Assistant</span><span id="modeTag" class="hint" style="text-transform:none;letter-spacing:0"></span><span class="spacer" style="flex:1"></span><button id="newChat" class="btn icon" title="Start a new conversation (keeps memory)" style="padding:3px 8px;font-size:11px">New chat</button></div>
+      <div class="head"><span class="tag ai">Assistant</span><span id="modeTag" class="hint" style="text-transform:none;letter-spacing:0"></span><span class="spacer" style="flex:1"></span>
+        <button id="newChat" class="btn head-btn" title="Start a new conversation (keeps memory)" aria-label="New chat">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z"/></svg>
+          <span>New</span>
+        </button>
+      </div>
       <div id="chat"></div>
       <div class="chatbar">
         <button id="mic" title="Hold to talk" aria-label="Hold to talk">
