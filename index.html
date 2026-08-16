@@ -2771,6 +2771,29 @@ function renderTextWithCodeBlocks(parent, text){
 function makeMsgActions(text){
   const wrap = document.createElement("div");
   wrap.className = "msg-actions";
+
+  // Read aloud — replays this message through the configured TTS.
+  const speakBtn = document.createElement("button");
+  speakBtn.type = "button"; speakBtn.title = "Read aloud"; speakBtn.setAttribute("aria-label", "Read this message aloud");
+  const speakerIcon = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2A4.5 4.5 0 0 0 14 8.03v7.94A4.5 4.5 0 0 0 16.5 12z"/></svg>';
+  const stopIcon = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>';
+  speakBtn.innerHTML = speakerIcon;
+  speakBtn.addEventListener("click", () => {
+    // Second tap while speaking → stop.
+    if(isSpeaking()){ stopSpeaking(); speakBtn.innerHTML = speakerIcon; return; }
+    const clean = stripRunLines(text || "");
+    if(!clean.trim()){ snack("Nothing to read.", "info"); return; }
+    speakBtn.innerHTML = stopIcon;
+    speak(pronounceForSpeech(clean));
+    // Restore icon once TTS is done — poll briefly since engines vary.
+    let tries = 0;
+    const iv = setInterval(() => {
+      if(!isSpeaking() || ++tries > 300){ clearInterval(iv); speakBtn.innerHTML = speakerIcon; }
+    }, 250);
+  });
+  wrap.appendChild(speakBtn);
+
+  // Copy message.
   const btn = document.createElement("button");
   btn.type = "button"; btn.title = "Copy message"; btn.setAttribute("aria-label", "Copy message");
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>';
