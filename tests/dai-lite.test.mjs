@@ -247,6 +247,26 @@ test("fuzzyMatch matches subsequences and returns null on miss", () => {
   assert.deepEqual(m.hits.map(i => "connect to flipper"[i]), ["c", "t", "f"]);
 });
 
+test("parseCodeBlocks splits prose + fenced code, preserves language", () => {
+  const parts = D.parseCodeBlocks("here you go:\n```js\nconsole.log(1);\n```\ndone.");
+  assert.equal(parts.length, 3);
+  assert.equal(parts[0].type, "text");
+  assert.equal(parts[1].type, "code"); assert.equal(parts[1].lang, "js");
+  assert.equal(parts[1].text, "console.log(1);\n");
+  assert.equal(parts[2].type, "text");
+});
+
+test("parseCodeBlocks handles no fences (returns whole text)", () => {
+  const parts = D.parseCodeBlocks("just text");
+  assert.deepEqual(parts, [{ type:"text", text:"just text" }]);
+});
+
+test("parseCodeBlocks handles adjacent fenced blocks + no lang", () => {
+  const parts = D.parseCodeBlocks("```\na\n```\n```\nb\n```");
+  assert.equal(parts.length, 2);
+  assert.equal(parts[0].lang, ""); assert.equal(parts[1].lang, "");
+});
+
 test("rankPalette sorts prefix matches ahead of scattered matches", () => {
   const items = [
     { label: "Save memory to Flipper" },

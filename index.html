@@ -287,6 +287,23 @@
   /* on-error-container isn't a token here — the error is dark, so text must be light. */
   .msg.err{ align-self:center; background:var(--error-container); color:var(--error); font-size:13px; border-radius:12px; padding:10px 14px; }
   .msg .role{ display:block; font-size:10px; letter-spacing:1px; text-transform:uppercase; opacity:.75; margin-bottom:6px; font-weight:600; }
+  /* Fenced code block inside an AI message. */
+  .code-block{
+    position:relative;
+    background:var(--surface-cont-lowest); color:#cfe6e2;
+    border-radius:12px; padding:12px 14px;
+    font-family:var(--mono); font-size:12.5px; line-height:1.55;
+    overflow-x:auto; white-space:pre;
+    margin:8px 0 4px;
+    border:1px solid var(--outline-var);
+  }
+  .code-block-lang{
+    position:absolute; top:6px; right:8px;
+    font-size:10px; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--on-surface-dim); font-weight:600;
+    background:var(--surface-cont-high); padding:2px 7px; border-radius:6px;
+    pointer-events:none;
+  }
   /* Message hover-reveal actions (copy button on AI messages). */
   .msg{ position:relative; }
   .msg-actions{
@@ -1399,6 +1416,23 @@ function extractDelta(data){
           data.choices[0].delta.content) || "";
 }
 
+/* Split a text segment into inline text and ```code blocks``` (returns an array
+   of {type:"text"|"code", text, lang?}). The parser lives inside parseAssistant
+   so the same segment shapes flow through the renderer. */
+function parseCodeBlocks(text){
+  const src = String(text == null ? "" : text);
+  const out = [];
+  const re = /```([a-zA-Z0-9_+\-]*)\n?([\s\S]*?)```/g;
+  let last = 0, m;
+  while((m = re.exec(src)) !== null){
+    if(m.index > last){ const before = src.slice(last, m.index); if(before) out.push({ type:"text", text: before }); }
+    out.push({ type:"code", lang: m[1] || "", text: m[2] });
+    last = re.lastIndex;
+  }
+  if(last < src.length){ const tail = src.slice(last); if(tail) out.push({ type:"text", text: tail }); }
+  return out.length ? out : [{ type:"text", text: src }];
+}
+
 /* Parse an assistant reply into ordered segments of prose and RUN: commands.
    This is the ONLY place a command is recognized, so it is heavily tested. */
 function parseAssistant(content){
@@ -1858,7 +1892,7 @@ if(typeof globalThis !== "undefined"){
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar, fuzzyMatch, rankPalette
+    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar, fuzzyMatch, rankPalette, parseCodeBlocks
   };
 }
 
@@ -2443,6 +2477,28 @@ function onDeviceData(event){
 /* ---- Chat rendering ---- */
 function roleTag(t){ const s = document.createElement("span"); s.className="role"; s.textContent=t; return s; }
 
+// Render a text segment: prose gets textContent, ```fenced``` blocks become
+// syntax-neutral code blocks with a small language tag.
+function renderTextWithCodeBlocks(parent, text){
+  for(const part of parseCodeBlocks(text)){
+    if(part.type === "text"){
+      const t = String(part.text || "").trim();
+      if(!t){ continue; }
+      const p = document.createElement("div");
+      p.textContent = part.text;
+      parent.appendChild(p);
+    }else{
+      const box = document.createElement("pre");
+      box.className = "code-block"; box.textContent = part.text;
+      if(part.lang){
+        const tag = document.createElement("span"); tag.className = "code-block-lang"; tag.textContent = part.lang;
+        box.appendChild(tag);
+      }
+      parent.appendChild(box);
+    }
+  }
+}
+
 // Hover-reveal copy button for an assistant message.
 function makeMsgActions(text){
   const wrap = document.createElement("div");
@@ -2559,13 +2615,8 @@ function addMessage(role, content){
     div.className = "msg ai";
     div.appendChild(roleTag("DAI-LITE"));
     for(const seg of parseAssistant(content)){
-      if(seg.type === "text"){
-        const p = document.createElement("div");
-        p.textContent = seg.text;
-        div.appendChild(p);
-      }else{
-        div.appendChild(makeRunRow(seg.command));
-      }
+      if(seg.type === "text"){ renderTextWithCodeBlocks(div, seg.text); }
+      else { div.appendChild(makeRunRow(seg.command)); }
     }
     div.appendChild(makeMsgActions(content));
   }else if(role === "error"){
@@ -2783,13 +2834,8 @@ function startAssistantBubble(){
       if(!text || !text.trim()){ div.remove(); return; }
       body.remove();
       for(const seg of parseAssistant(text)){
-        if(seg.type === "text"){
-          const p = document.createElement("div");
-          p.textContent = seg.text;
-          div.appendChild(p);
-        }else{
-          div.appendChild(makeRunRow(seg.command));
-        }
+        if(seg.type === "text"){ renderTextWithCodeBlocks(div, seg.text); }
+        else { div.appendChild(makeRunRow(seg.command)); }
       }
       div.appendChild(makeMsgActions(text));
       follow();
