@@ -857,7 +857,7 @@ test("QUICK_COMMANDS are safe, read-only-ish strings", () => {
 test("provider presets have the exact spec Base URLs", () => {
   assert.equal(D.PRESETS.openrouter.baseUrl, "https://openrouter.ai/api/v1");
   assert.equal(D.PRESETS.nvidia.baseUrl, "https://integrate.api.nvidia.com/v1");
-  assert.equal(D.PRESETS.ollama.baseUrl, "http://LAN-IP:11434/v1");
+  assert.equal(D.PRESETS.ollama.baseUrl, "http://localhost:11434/v1");
 });
 
 /* ========================================================================

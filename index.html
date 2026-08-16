@@ -1122,7 +1122,9 @@ const PRESETS = {
   openrouter: { baseUrl:"https://openrouter.ai/api/v1",        model:"openai/gpt-4o-mini" },
   nvidia:     { baseUrl:"https://integrate.api.nvidia.com/v1", model:"meta/llama-3.1-70b-instruct" },
   // Ollama runs on your LAN and ignores the API key. Replace LAN-IP with your host.
-  ollama:     { baseUrl:"http://LAN-IP:11434/v1",              model:"llama3.1" }
+  // Ollama defaults to localhost (works when it runs on the same box);
+  // swap the host if you're pointing at a LAN Ollama.
+  ollama:     { baseUrl:"http://localhost:11434/v1",           model:"llama3.1" }
 };
 
 /* ---- Neural TTS voices ----------------------------------------------------
