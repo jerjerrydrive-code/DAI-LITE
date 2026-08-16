@@ -40,75 +40,103 @@
 <style>
   /* ---------- Theme tokens (dark, teal primary, copper accent) ---------- */
   :root{
-    --bg:        #0b0f10;   /* app background            */
-    --panel:     #111819;   /* panel surfaces            */
-    --panel-2:   #0e1415;   /* inputs / terminal body    */
-    --border:    #1f2c2e;   /* hairline borders          */
-    --text:      #e7eef0;   /* primary text              */
-    --muted:     #8ca0a4;   /* secondary text            */
-    --teal:      #0E9488;   /* primary                   */
-    --teal-hi:   #14b5a6;   /* primary hover             */
-    --copper:    #E8A33D;   /* accent                    */
-    --danger:    #e0574f;   /* errors / disconnect       */
-    --ok:        #35c48a;   /* connected                 */
-    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
-    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --bg:        #0a0e10;   /* app background            */
+    --bg-2:      #060a0b;   /* deeper wells              */
+    --panel:     #10181a;   /* panel surfaces            */
+    --panel-2:   #0c1416;   /* inputs / terminal body    */
+    --panel-hi:  #172325;   /* hover                     */
+    --border:    #1b2a2d;   /* hairline borders          */
+    --border-hi: #2a3d40;   /* stronger borders          */
+    --text:      #eaf2f4;   /* primary text              */
+    --muted:     #8ea6ab;   /* secondary text            */
+    --dim:       #566d71;   /* tertiary text             */
+    --teal:      #14b5a6;   /* primary (brighter)        */
+    --teal-hi:   #2dd4bf;   /* primary hover             */
+    --teal-dim:  #0d7a70;   /* primary dim               */
+    --copper:    #f0b46b;   /* accent (softer)           */
+    --copper-dim:#c9873a;   /* accent dim                */
+    --danger:    #e57373;   /* errors / disconnect       */
+    --ok:        #4ade80;   /* connected                 */
+    --shadow:    0 4px 16px rgba(0,0,0,.35);
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 
   *{ box-sizing:border-box; }
   html, body{
     margin:0; height:100%;
-    background:var(--bg); color:var(--text);
+    background:
+      radial-gradient(1200px 700px at 15% -10%, rgba(20,181,166,.06), transparent 55%),
+      radial-gradient(1000px 600px at 105% 110%, rgba(240,180,107,.05), transparent 55%),
+      var(--bg);
+    color:var(--text);
     font-family:var(--sans);
-    overflow-x:hidden;              /* never allow horizontal page scroll */
+    font-feature-settings: "cv02","cv03","cv04","cv11";  /* nicer numerals if available */
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    overflow-x:hidden;
     -webkit-text-size-adjust:100%;
   }
-  button, select, input{ font-family:inherit; }
+  button, select, input, textarea{ font-family:inherit; color:var(--text); }
+  ::selection{ background:var(--teal-dim); color:#fff; }
 
-  /* ---------- App shell ---------- */
   .app{ display:flex; flex-direction:column; min-height:100%; }
 
   /* ---------- Top bar ---------- */
   header{
     display:flex; align-items:center; gap:10px;
-    padding:10px 12px;
-    background:linear-gradient(180deg,#101b1c,#0d1516);
+    padding:12px 16px;
+    background:linear-gradient(180deg, rgba(16,24,26,.95), rgba(10,14,16,.85));
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
     border-bottom:1px solid var(--border);
     position:sticky; top:0; z-index:20;
   }
-  .brand{ display:flex; align-items:center; gap:9px; min-width:0; }
+  .brand{ display:flex; align-items:center; gap:11px; min-width:0; }
   .logo{
-    width:30px; height:30px; border-radius:8px; flex:0 0 auto;
-    background:radial-gradient(circle at 30% 30%, var(--teal-hi), var(--teal) 70%);
-    display:grid; place-items:center; color:#04211f; font-weight:800; font-size:14px;
-    box-shadow:0 0 0 1px rgba(255,255,255,.06) inset;
+    width:34px; height:34px; border-radius:10px; flex:0 0 auto;
+    background:conic-gradient(from 220deg, var(--teal-hi), var(--teal) 45%, var(--copper) 100%);
+    display:grid; place-items:center; color:#052120; font-weight:800; font-size:13px;
+    letter-spacing:.5px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 6px 20px -8px rgba(20,181,166,.5);
   }
-  .brand h1{ font-size:15px; margin:0; letter-spacing:.5px; white-space:nowrap; }
-  .brand small{ color:var(--copper); font-weight:600; }
+  .brand h1{ font-size:15.5px; margin:0; letter-spacing:.2px; white-space:nowrap; font-weight:700; }
+  .brand small{ color:var(--copper); font-weight:500; margin-left:2px; letter-spacing:.3px; }
   .spacer{ flex:1 1 auto; }
 
   .status{
-    display:flex; align-items:center; gap:7px;
+    display:inline-flex; align-items:center; gap:8px;
     font-size:12px; color:var(--muted);
-    padding:5px 9px; border:1px solid var(--border); border-radius:20px;
-    background:var(--panel-2); white-space:nowrap;
+    padding:6px 12px; border:1px solid var(--border); border-radius:999px;
+    background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(0,0,0,.15));
+    white-space:nowrap; font-weight:500;
   }
-  .dot{ width:9px; height:9px; border-radius:50%; background:var(--danger); box-shadow:0 0 8px currentColor; }
-  .status.connected{ color:var(--ok); }
-  .status.connected .dot{ background:var(--ok); }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--danger); box-shadow:0 0 10px currentColor; }
+  .status.connected{ color:var(--ok); border-color:rgba(74,222,128,.25); }
+  .status.connected .dot{ background:var(--ok); animation:pulse-dot 2s ease-in-out infinite; }
+  @keyframes pulse-dot{ 0%,100%{ opacity:1; } 50%{ opacity:.55; } }
 
   .btn{
     border:1px solid var(--border); background:var(--panel-2); color:var(--text);
-    padding:8px 12px; border-radius:9px; cursor:pointer; font-size:13px; font-weight:600;
-    transition:background .15s, border-color .15s, opacity .15s;
+    padding:8px 14px; border-radius:9px; cursor:pointer; font-size:13px; font-weight:500;
+    transition:background .15s, border-color .15s, color .15s, transform .05s;
+    letter-spacing:.1px;
   }
-  .btn:hover{ border-color:var(--teal); }
-  .btn.primary{ background:var(--teal); border-color:var(--teal); color:#03211e; }
-  .btn.primary:hover{ background:var(--teal-hi); border-color:var(--teal-hi); }
-  .btn.icon{ padding:8px 10px; }
-  .btn.accent{ border-color:var(--copper); color:var(--copper); }
-  .btn:disabled{ opacity:.45; cursor:not-allowed; }
-  .btn.on{ background:var(--copper); border-color:var(--copper); color:#241403; }
+  .btn:hover{ background:var(--panel-hi); border-color:var(--border-hi); }
+  .btn:active{ transform:translateY(1px); }
+  .btn.primary{
+    background:linear-gradient(180deg, var(--teal-hi), var(--teal));
+    border-color:var(--teal); color:#052120; font-weight:600;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 4px 12px -6px rgba(20,181,166,.6);
+  }
+  .btn.primary:hover{
+    background:linear-gradient(180deg, #3ee0cc, var(--teal-hi));
+    border-color:var(--teal-hi);
+  }
+  .btn.icon{ padding:7px 10px; }
+  .btn.accent{ border-color:rgba(240,180,107,.4); color:var(--copper); background:rgba(240,180,107,.05); }
+  .btn.accent:hover{ background:rgba(240,180,107,.12); border-color:var(--copper); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn.on{ background:linear-gradient(180deg, #f4c483, var(--copper)); border-color:var(--copper); color:#241403; }
 
   /* ---------- Main two-panel layout ---------- */
   .main{
