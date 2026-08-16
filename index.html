@@ -304,6 +304,18 @@
     background:var(--surface-cont-high); padding:2px 7px; border-radius:6px;
     pointer-events:none;
   }
+  .code-block .copy-code{
+    position:absolute; top:6px; right:8px;
+    background:var(--surface-cont-high); color:var(--on-surface-var);
+    border:none; border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer;
+    opacity:0; transition:opacity .15s, background .12s, color .12s;
+    font-family:var(--sans); display:inline-flex; align-items:center; gap:5px;
+  }
+  .code-block:hover .copy-code, .code-block:focus-within .copy-code{ opacity:1; }
+  .code-block .copy-code:hover{ background:var(--surface-bright); color:var(--on-surface); }
+  .code-block .copy-code.done{ background:var(--primary-container); color:var(--on-primary-container); opacity:1; }
+  /* When copy shows, hide the lang tag underneath (they share the same corner). */
+  .code-block:hover .code-block-lang, .code-block:focus-within .code-block-lang{ display:none; }
   /* Message hover-reveal actions (copy button on AI messages). */
   .msg{ position:relative; }
   .msg-actions{
@@ -2498,6 +2510,18 @@ function renderTextWithCodeBlocks(parent, text){
         const tag = document.createElement("span"); tag.className = "code-block-lang"; tag.textContent = part.lang;
         box.appendChild(tag);
       }
+      // Hover-reveal copy button (works even without the lang tag).
+      const copy = document.createElement("button");
+      copy.className = "copy-code"; copy.type = "button"; copy.textContent = "Copy"; copy.title = "Copy code";
+      copy.addEventListener("click", async () => {
+        try{
+          if(navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(part.text);
+          else { const ta = document.createElement("textarea"); ta.value = part.text; document.body.appendChild(ta); ta.select(); try{ document.execCommand("copy"); }catch(_){} ta.remove(); }
+          copy.classList.add("done"); copy.textContent = "Copied ✓";
+          setTimeout(() => { copy.classList.remove("done"); copy.textContent = "Copy"; }, 1600);
+        }catch(_){}
+      });
+      box.appendChild(copy);
       parent.appendChild(box);
     }
   }
