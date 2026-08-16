@@ -477,6 +477,24 @@
   .palette-item .hint{ color:var(--on-surface-dim); font-size:12px; font-family:var(--mono); }
   .palette-empty{ padding:32px 20px; text-align:center; color:var(--on-surface-dim); font-size:13px; }
 
+  /* Command-palette discovery hint in the top bar */
+  .kbd-hint{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:7px 10px 7px 12px; border-radius:999px;
+    background:var(--surface-cont-high); border:1px solid var(--outline-var);
+    color:var(--on-surface-var); font-size:12.5px; cursor:pointer;
+    transition:background .15s, border-color .15s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .kbd-hint:hover{ background:var(--surface-cont-highest); border-color:var(--outline); }
+  .kbd-hint kbd{
+    background:var(--surface-cont-lowest); color:var(--on-surface-dim);
+    padding:2px 6px; border-radius:5px; font-family:var(--sans); font-size:11px;
+    border:1px solid var(--outline-var); font-weight:600;
+  }
+  .kbd-hint svg{ opacity:.7; }
+  @media (max-width: 820px){ .kbd-hint span, .kbd-hint kbd{ display:none; } .kbd-hint{ padding:8px; } }
+
   /* ---------- Snackbar (M3 toast, bottom-center) ---------- */
   #snacks{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:60; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; max-width:calc(100% - 32px); }
   .snack{
@@ -519,6 +537,11 @@
     </div>
     <button id="modeBtn" class="btn" title="Switch mode">Lite</button>
     <div class="spacer"></div>
+    <button id="cmdKBtn" class="kbd-hint" title="Command palette (Ctrl+K)" aria-label="Open command palette">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+      <span>Search…</span>
+      <kbd>⌘K</kbd>
+    </button>
     <div id="status" class="status"><span class="dot"></span><span class="txt">Disconnected</span></div>
     <button id="muteBtn" class="btn icon" title="Mute / unmute the assistant voice" aria-label="Toggle voice">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.06A7 7 0 0 1 14 18.74v2.06A9 9 0 0 0 14 3.2z"/></svg>
@@ -3212,6 +3235,7 @@ function newChat(){
 /* ---- Wiring ---- */
 function wire(){
   $("connectBtn").addEventListener("click", toggleConnect);
+  $("cmdKBtn") && $("cmdKBtn").addEventListener("click", openPalette);
   $("settingsBtn").addEventListener("click", openSettings);
   const ICON_VOLUME = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.06A7 7 0 0 1 14 18.74v2.06A9 9 0 0 0 14 3.2z"/></svg>';
   const ICON_MUTE   = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.17v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>';
