@@ -269,9 +269,12 @@
   }
   .term-empty-title{ font-size:16px; font-weight:600; color:var(--on-surface); margin-bottom:4px; }
   .term-empty-sub{ font-size:13px; max-width:280px; line-height:1.5; }
-  /* Toggled by JS: .term-empty is shown when nothing is connected. */
+  /* Toggled by JS: .term-empty shows when nothing is connected AND pre is empty.
+     If the pre has content (e.g. a startup warning), the empty state hides. */
   body.term-live .term-empty{ display:none; }
-  body:not(.term-live) #term{ display:none; }
+  #term:not(:empty) + .term-empty{ display:none; }
+  /* Hide the pre when it's empty AND we're not connected — else keep it visible. */
+  body:not(.term-live) #term:empty{ display:none; }
   /* Scrollbars */
   #term::-webkit-scrollbar, #chat::-webkit-scrollbar{ width:10px; height:10px; }
   #term::-webkit-scrollbar-thumb, #chat::-webkit-scrollbar-thumb{
