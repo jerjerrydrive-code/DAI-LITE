@@ -870,6 +870,10 @@
         <span class="tag" id="devTag">Flipper CLI</span>
         <span class="spacer" style="flex:1"></span>
         <span id="devname" style="text-transform:none;letter-spacing:0"></span>
+        <button id="termCopy" class="btn head-btn" title="Copy all terminal output" aria-label="Copy terminal">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>
+          <span>Copy</span>
+        </button>
         <button id="termClear" class="btn head-btn" title="Clear the terminal" aria-label="Clear terminal">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0M4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53l-6.36-6.36l-3.54 3.53c-.78.79-.78 2.04 0 2.83z"/></svg>
           <span>Clear</span>
@@ -3871,6 +3875,26 @@ function clearTerminal(){
   refreshToAiBtn();
   termLine("Terminal cleared.", "sys");
 }
+
+async function copyTerminal(){
+  const term = $("term");
+  const text = term ? (term.innerText || term.textContent || "") : "";
+  const trimmed = text.replace(/\s+$/, "");
+  if(!trimmed){ snack("Terminal is empty.", "info"); return; }
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(trimmed);
+    else {
+      const ta = document.createElement("textarea"); ta.value = trimmed;
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand("copy"); }catch(_){}
+      ta.remove();
+    }
+    const lines = trimmed.split("\n").length;
+    snack("Copied " + lines + " line" + (lines === 1 ? "" : "s") + " from the terminal.", "ok");
+  }catch(_){
+    snack("Copy failed — try selecting the text manually.", "warn");
+  }
+}
 function sendChat(){ const v = $("chatInput").value.trim(); if(!v) return; $("chatInput").value = ""; askAI(v); }
 function renderQuickCommands(){
   const box = $("quickCmds"); if(!box) return;
@@ -3970,6 +3994,7 @@ function wire(){
     else if(e.key === "ArrowDown"){ e.preventDefault(); recallHistory(1); }
   });
   $("termClear").addEventListener("click", clearTerminal);
+  $("termCopy").addEventListener("click", copyTerminal);
   $("toAiBtn").addEventListener("click", sendCapturedOutput);
 
   $("chatSend").addEventListener("click", sendChat);
