@@ -349,7 +349,9 @@
     background:color-mix(in oklab, var(--secondary-container), transparent 55%);
     border:1px solid color-mix(in oklab, var(--secondary), transparent 60%);
     border-radius:14px; padding:8px 8px 8px 14px;
+    animation:run-in .3s cubic-bezier(.2,.9,.3,1.2);
   }
+  @keyframes run-in{ from{ opacity:0; transform:translateY(6px) scale(.98); } to{ opacity:1; transform:none; } }
   .run code{ flex:1; min-width:0; font-family:var(--mono); font-size:13px; color:var(--secondary); overflow-x:auto; white-space:pre; padding:4px 0; }
   .run .go{
     position:relative; overflow:hidden;
@@ -644,6 +646,19 @@
     #connectBtn{ padding:9px 12px; }
     .seg-btn{ padding:6px 12px; font-size:12.5px; }
   }
+  /* A11y: respect prefers-reduced-motion — kill non-essential animation/transition */
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration:0.001ms !important;
+      animation-iteration-count:1 !important;
+      transition-duration:0.001ms !important;
+      scroll-behavior:auto !important;
+    }
+    .status.connected .dot{ animation:none; }
+    #mic.listening{ animation:none; }
+    .typing span{ animation:none; opacity:.75; }
+  }
+
   /* Sub-480 = true phone: settings becomes a bottom sheet */
   @media (max-width: 480px){
     .overlay{ padding:0; align-items:flex-end; }
