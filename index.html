@@ -255,6 +255,22 @@
   #term .cmd{ color:var(--copper); font-weight:600; }
   #term .rx{ color:#c7ebe0; }
   #term .err{ color:var(--danger); }
+  /* Terminal empty state — shown when nothing has been printed AND no device. */
+  .term-empty{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:32px 20px; text-align:center; color:var(--on-surface-var);
+    background:var(--bg-2);
+  }
+  .term-empty-ico{
+    width:74px; height:74px; border-radius:50%;
+    background:var(--surface-cont); color:var(--on-surface-dim);
+    display:grid; place-items:center; margin-bottom:16px;
+  }
+  .term-empty-title{ font-size:16px; font-weight:600; color:var(--on-surface); margin-bottom:4px; }
+  .term-empty-sub{ font-size:13px; max-width:280px; line-height:1.5; }
+  /* Toggled by JS: .term-empty is shown when nothing is connected. */
+  body.term-live .term-empty{ display:none; }
+  body:not(.term-live) #term{ display:none; }
   /* Scrollbars */
   #term::-webkit-scrollbar, #chat::-webkit-scrollbar{ width:10px; height:10px; }
   #term::-webkit-scrollbar-thumb, #chat::-webkit-scrollbar-thumb{
@@ -779,9 +795,15 @@
           <span>Clear</span>
         </button>
       </div>
-      <pre id="term"><span class="sys">DAI-LITE terminal ready. Connect a device to begin.
-Type a command below or let the assistant propose one.
-</span></pre>
+      <pre id="term"></pre>
+      <div id="termEmpty" class="term-empty">
+        <div class="term-empty-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="42" height="42" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
+        </div>
+        <div class="term-empty-title">Terminal ready</div>
+        <div class="term-empty-sub">Connect a device to send commands and see live output here.</div>
+        <button id="termEmptyConnect" class="btn primary" type="button" style="margin-top:14px">Connect</button>
+      </div>
       <div id="quickCmds" class="quick"></div>
       <div class="cmdbar">
         <input id="cmdInput" placeholder="Manual command (↑/↓ for history)" autocomplete="off" spellcheck="false" />
@@ -3551,6 +3573,7 @@ function transportIcon(t){
 
 function setConnected(connected, name){
   const el = $("status"); if(!el) return;
+  document.body.classList.toggle("term-live", !!connected);
   el.classList.toggle("connected", connected);
   el.querySelector(".txt").textContent = connected ? "Connected" : "Disconnected";
   $("devname").textContent = connected && name ? name : "";
@@ -3680,6 +3703,7 @@ function wire(){
   });
 
   $("cmdSend").addEventListener("click", sendManualCommand);
+  const tec = $("termEmptyConnect"); if(tec) tec.addEventListener("click", toggleConnect);
   $("cmdInput").addEventListener("keydown", e => {
     if(e.key === "Enter"){ sendManualCommand(); }
     else if(e.key === "ArrowUp"){ e.preventDefault(); recallHistory(-1); }
