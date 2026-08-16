@@ -247,6 +247,18 @@ test("fuzzyMatch matches subsequences and returns null on miss", () => {
   assert.deepEqual(m.hits.map(i => "connect to flipper"[i]), ["c", "t", "f"]);
 });
 
+test("stripAnsi cleans up common CSI colour codes + BEL noise", () => {
+  // Real Flipper-firmware output the user pasted in their terminal:
+  const src = "\x1b[38;2;255;130;0mWelcome to Flipper\x1b[0m\r\n";
+  assert.equal(D.stripAnsi(src), "Welcome to Flipper\r\n");
+  // OSC-form title sequences
+  assert.equal(D.stripAnsi("\x1b]0;title\x07after"), "after");
+  // Nothing to strip
+  assert.equal(D.stripAnsi("just text"), "just text");
+  assert.equal(D.stripAnsi(""), "");
+  assert.equal(D.stripAnsi(null), "");
+});
+
 test("parseCodeBlocks splits prose + fenced code, preserves language", () => {
   const parts = D.parseCodeBlocks("here you go:\n```js\nconsole.log(1);\n```\ndone.");
   assert.equal(parts.length, 3);

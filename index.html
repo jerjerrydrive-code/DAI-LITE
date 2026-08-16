@@ -1675,6 +1675,21 @@ function splitSpeech(text, maxLen){
   return parts;
 }
 
+/* Strip ANSI escape sequences from device output so the terminal shows clean
+   text instead of noise like `\x1b[38;2;255;130;0m`. Covers the common CSI
+   (colour / cursor) and OSC (title/hyperlink) sequences. Returns clean text. */
+function stripAnsi(text){
+  return String(text == null ? "" : text)
+    // CSI: ESC [ params letter, e.g. ESC[38;2;255;130;0m
+    .replace(/\[[0-9;?]*[ -\/]*[@-~]/g, "")
+    // OSC: ESC ] ... BEL or ESC \\
+    .replace(/\][^]*(?:|\\)/g, "")
+    // Bare ESC + single letter fallbacks
+    .replace(/[@-Z\\-_]/g, "")
+    // Bell + carriage-return-without-newline noise
+    .replace(//g, "");
+}
+
 /* Simple fuzzy match: returns null if not all query chars appear in order,
    else a score (lower = better) and a mask of matched indices for highlighting. */
 function fuzzyMatch(needle, haystack){
@@ -2032,7 +2047,7 @@ if(typeof globalThis !== "undefined"){
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar, fuzzyMatch, rankPalette, parseCodeBlocks
+    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand, classifySnackbar, fuzzyMatch, rankPalette, parseCodeBlocks, stripAnsi
   };
 }
 
@@ -2626,8 +2641,9 @@ function fireAutoSend(){
 function ingestText(text){
   if(!text) return;
   gotAnyRx = true;
-  termAppend(text, "rx");
-  captureBuffer = appendCapture(captureBuffer, text);
+  const clean = stripAnsi(text);   // strip ANSI colour/cursor escape codes
+  termAppend(clean, "rx");
+  captureBuffer = appendCapture(captureBuffer, clean);
   refreshToAiBtn();
   // Debounce: once output has been quiet for ~1.2s, hand it to the assistant.
   if(awaitingAuto && autoSendEnabled() && !memorySyncing){
