@@ -404,6 +404,9 @@
   }
   .msg-actions button:hover{ background:var(--surface-bright); color:var(--on-surface); }
   .msg-actions button.done{ background:var(--primary-container); color:var(--on-primary-container); }
+  /* Regenerate: only visible on the LAST assistant reply. */
+  .msg-actions .regen{ display:none; }
+  .msg.is-last-ai .msg-actions .regen{ display:inline-flex; }
   /* Empty state — big welcome + suggestion chips for first-run / New chat. */
   .empty{
     align-self:stretch; text-align:center;
@@ -2797,6 +2800,14 @@ function makeMsgActions(text){
   });
   wrap.appendChild(speakBtn);
 
+  // Regenerate — only visible on the LAST assistant message (see .is-last-ai CSS).
+  const regen = document.createElement("button");
+  regen.type = "button"; regen.className = "regen";
+  regen.title = "Regenerate reply"; regen.setAttribute("aria-label", "Regenerate reply");
+  regen.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
+  regen.addEventListener("click", () => regenerateLastReply());
+  wrap.appendChild(regen);
+
   // Copy message.
   const btn = document.createElement("button");
   btn.type = "button"; btn.title = "Copy message"; btn.setAttribute("aria-label", "Copy message");
@@ -2953,6 +2964,9 @@ function addMessage(role, content){
       else { div.appendChild(makeRunRow(seg.command)); }
     }
     div.appendChild(makeMsgActions(content));
+    // Only the newest assistant reply carries the "regenerate" affordance.
+    chat.querySelectorAll(".msg.ai.is-last-ai").forEach(n => n.classList.remove("is-last-ai"));
+    div.classList.add("is-last-ai");
   }else if(role === "error"){
     div.className = "msg err";
     const txt = document.createElement("div"); txt.textContent = content; div.appendChild(txt);
@@ -3201,6 +3215,12 @@ function startAssistantBubble(){
         else { div.appendChild(makeRunRow(seg.command)); }
       }
       div.appendChild(makeMsgActions(text));
+      // This bubble is now the newest assistant reply — mark it as such so the
+      // regenerate affordance moves with it (and off any earlier bubble).
+      if(chat){
+        chat.querySelectorAll(".msg.ai.is-last-ai").forEach(n => n.classList.remove("is-last-ai"));
+        div.classList.add("is-last-ai");
+      }
       follow();
     }
   };
@@ -3921,6 +3941,29 @@ function renderQuickCommands(){
     box.appendChild(chip);
   });
 }
+function regenerateLastReply(){
+  if(aiBusy){ snack("Still writing — try again once the current reply finishes.", "info"); return; }
+  // Find the last assistant turn and pop it (from state + DOM). Leaves the
+  // preceding user turn in place so runAiTurn() picks up where it left off.
+  let idx = -1;
+  for(let i = conversation.length - 1; i >= 0; i--){ if(conversation[i].role === "assistant"){ idx = i; break; } }
+  if(idx < 0){ snack("No reply to regenerate yet.", "info"); return; }
+  conversation.splice(idx, 1);
+  try{ localStorage.setItem(CONVO_KEY, JSON.stringify(conversation.slice(-60))); }catch(_){}
+  const chat = $("chat");
+  if(chat){
+    const bubbles = chat.querySelectorAll(".msg.ai");
+    const last = bubbles[bubbles.length - 1];
+    if(last) last.remove();
+    // Re-mark the previous assistant bubble (if any) as the tail.
+    const remaining = chat.querySelectorAll(".msg.ai");
+    const prev = remaining[remaining.length - 1];
+    if(prev) prev.classList.add("is-last-ai");
+  }
+  stopSpeaking();
+  runAiTurn();
+}
+
 function newChat(){
   if(aiBusy){ snack("Finishing the current reply — tap New chat again in a moment.", "info"); return; }
   conversation = [];                 // fresh context; long-term memory is untouched
