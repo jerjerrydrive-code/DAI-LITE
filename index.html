@@ -2849,7 +2849,23 @@ function sendCapturedOutput(){
 // Shared network turn: assumes the latest user message is already in `conversation`.
 async function runAiTurn(){
   const s = getSettings();
-  if(!s.baseUrl){ addMessage("error", "Set an AI Base URL in ⚙️ Settings first."); return; }
+  if(!s.baseUrl){
+    // Roll our own bubble so we can attach an Easy-setup action button.
+    const chat = $("chat"); if(!chat) return;
+    const empty = chat.querySelector(".empty"); if(empty) empty.remove();
+    const div = document.createElement("div");
+    div.className = "msg err";
+    const txt = document.createElement("div"); txt.textContent = "No AI provider set. Use Easy setup for a free, no-key option, or open Settings to add your own."; div.appendChild(txt);
+    const row = document.createElement("div"); row.style.display="flex"; row.style.gap="8px"; row.style.alignSelf="flex-end";
+    const es = document.createElement("button"); es.className = "err-retry"; es.type = "button"; es.textContent = "⚡ Easy setup";
+    es.addEventListener("click", () => { div.remove(); easySetup(); setTimeout(runAiTurn, 60); });
+    const os = document.createElement("button"); os.className = "err-retry"; os.type = "button"; os.textContent = "Open Settings";
+    os.style.background = "var(--surface-cont-highest)"; os.style.color = "var(--on-surface)";
+    os.addEventListener("click", () => { div.remove(); openSettings(); });
+    row.appendChild(es); row.appendChild(os); div.appendChild(row);
+    chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
+    return;
+  }
 
   aiBusy = true;
   setChatBusy(true);
