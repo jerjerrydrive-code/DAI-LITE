@@ -369,6 +369,17 @@
   }
   .chatbar input:hover{ background:var(--surface-cont-highest); }
   .chatbar input:focus{ outline:none; background:var(--surface-cont-highest); box-shadow:0 0 0 2px var(--primary); }
+  .chatbar input:disabled{ opacity:.6; cursor:not-allowed; }
+  /* Send button in the loading state — subtle animated dots overlay */
+  #chatSend.loading{ position:relative; color:transparent !important; }
+  #chatSend.loading::after{
+    content:""; position:absolute; inset:0; display:grid; place-items:center;
+    background-image:radial-gradient(circle, currentColor 1.6px, transparent 2px);
+    background-size:9px 100%;
+    color:var(--on-primary);
+    animation:btn-loading 1s linear infinite;
+  }
+  @keyframes btn-loading{ 0%{ background-position:0 0; } 100%{ background-position:27px 0; } }
   /* Push-to-talk mic: hold to speak */
   /* M3 FAB-style mic: primary-container tone, elevation, ripple state layer. */
   #mic{
@@ -2570,6 +2581,7 @@ async function runAiTurn(){
   if(!s.baseUrl){ addMessage("error", "Set an AI Base URL in ⚙️ Settings first."); return; }
 
   aiBusy = true;
+  setChatBusy(true);
   const thinking = addMessage("thinking");
   const wantStream = s.streaming && !streamBroken;
   try{
@@ -2649,7 +2661,16 @@ async function runAiTurn(){
       "  (Check the Base URL, your key, and CORS support for this provider.)");
   }finally{
     aiBusy = false;   // always release, even on early return / error
+    setChatBusy(false);
   }
+}
+
+// Toggle the chat input disabled state + a subtle send-button loading look.
+function setChatBusy(busy){
+  const inp = $("chatInput"), btn = $("chatSend"); if(!inp || !btn) return;
+  inp.disabled = !!busy;
+  btn.disabled = !!busy;
+  btn.classList.toggle("loading", !!busy);
 }
 
 // Read an SSE stream, painting text into a live bubble as it arrives.
