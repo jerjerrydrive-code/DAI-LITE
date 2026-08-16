@@ -239,6 +239,17 @@ test("splitSpeech breaks into sentences and caps long runs", () => {
   assert.deepEqual(D.splitSpeech(""), []);
 });
 
+test("sanitizeFlipperCommand strips inline # / // comments the AI adds", () => {
+  assert.equal(D.sanitizeFlipperCommand("vibro 1  # buzz the motor"), "vibro 1");
+  assert.equal(D.sanitizeFlipperCommand("led r 255 // red LED"), "led r 255");
+  assert.equal(D.sanitizeFlipperCommand("device_info"), "device_info");
+  assert.equal(D.sanitizeFlipperCommand("  power info  "), "power info");
+  // A path containing # (no leading space) is NOT a comment marker
+  assert.equal(D.sanitizeFlipperCommand("storage read /ext/subghz/track#1.sub"), "storage read /ext/subghz/track#1.sub");
+  assert.equal(D.sanitizeFlipperCommand(""), "");
+  assert.equal(D.sanitizeFlipperCommand(null), "");
+});
+
 test("pronounceForSpeech makes the brand say 'daylight'", () => {
   assert.equal(D.pronounceForSpeech("Hi, DAI-LITE here."), "Hi, Daylight here.");
   assert.equal(D.pronounceForSpeech("dai-lite / DAI LITE / Dai"), "Daylight / Daylight / Day");

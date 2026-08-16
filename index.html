@@ -881,6 +881,9 @@ How to respond:
 - Whenever a command should run on the device, put it ON ITS OWN LINE beginning
   EXACTLY with "RUN: " — for example:
       RUN: help
+- The Flipper CLI is NOT bash: NEVER add inline "# ..." comments or "// ..."
+  after a command. "vibro 1  # buzz" is unknown to the Flipper and does nothing.
+  If you need to explain, put the explanation on the LINE ABOVE the RUN:.
 - The app shows the user a "Run" button for each such line. The user must press it.
   NEVER assume a command already ran, and NEVER invent command output. After the
   user runs something, they can send the device's real output back to you with the
@@ -1012,6 +1015,19 @@ function parseAssistant(content){
   }
   flush();
   return segments;
+}
+
+/* The Flipper CLI is NOT bash — it doesn't strip `#` comments. If the model
+   proposes "vibro 1  # buzz on" the Flipper sees an unknown command and does
+   nothing. Strip inline shell-style comments defensively before send. */
+function sanitizeFlipperCommand(cmd){
+  const s = String(cmd == null ? "" : cmd);
+  // Drop from ` #` (space before hash, so paths containing # still work) or from
+  // `//` line comments the model sometimes adds too.
+  const cut = Math.min(
+    ...[" #", "\t#", " //", "\t//"].map(t => { const i = s.indexOf(t); return i < 0 ? Infinity : i; })
+  );
+  return (cut === Infinity ? s : s.slice(0, cut)).trim();
 }
 
 /* Remove RUN: lines so text-to-speech doesn't read raw commands out loud. */
@@ -1399,7 +1415,7 @@ if(typeof globalThis !== "undefined"){
     extractMemories, appendMemory, parseFlipperMemoryRead,
     resolveTtsUrl, ttsHeaders, buildTtsBody, styleToProsody,
     frameCommand, chunkBytes, buildSystemPrompt, buildRequestBody, buildHeaders,
-    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech
+    resolveChatUrl, normalizeWsUrl, extractReply, parseSseEvents, extractDelta, parseAssistant, stripRunLines, pronounceForSpeech, splitSpeech, sanitizeFlipperCommand
   };
 }
 
@@ -1780,6 +1796,8 @@ function queueWrite(task){
    Writes are serialized, use write-WITH-response, and are paced so we don't
    overrun the device's small BLE buffer (which made the Flipper disconnect). */
 function sendCommand(command){
+  command = sanitizeFlipperCommand(command);   // strip "# comment" the AI keeps adding
+  if(!command) return Promise.resolve(false);
   // USB path: write directly to the serial port via Web Serial.
   if(activeTransport === "usb"){
     if(!serialWriter){ termLine("Not connected — connect first.", "err"); return Promise.resolve(false); }
@@ -1868,11 +1886,15 @@ async function saveMemoryToFlipper(){
     await sendCommand("storage remove /ext/dai/memory.txt");  // overwrite cleanly (fine if missing)
     await sleep(250);
     await sendCommand("storage write /ext/dai/memory.txt");   // enters write mode
-    await sleep(450);
+    await sleep(600);
     await sendRaw(mem + "\n");                                // the content
-    await sleep(250);
-    await sendRaw("\x03");                                    // Ctrl+C ends the write
-    addMessage("note", "Sent. Check the terminal for the Flipper's confirmation.");
+    await sleep(400);
+    // Ctrl+C, small pause, then a newline — some firmwares need the extra
+    // newline to actually leave write mode cleanly.
+    await sendRaw("\x03");
+    await sleep(200);
+    await sendRaw("\r\n");
+    addMessage("note", "Sent — memory written to /ext/dai/memory.txt on the Flipper.");
   }finally{ awaitingAuto = false; clearTimeout(autoTimer); memorySyncing = false; }
 }
 async function loadMemoryFromFlipper(){
