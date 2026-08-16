@@ -277,6 +277,19 @@
   /* on-error-container isn't a token here — the error is dark, so text must be light. */
   .msg.err{ align-self:center; background:var(--error-container); color:var(--error); font-size:13px; border-radius:12px; padding:10px 14px; }
   .msg .role{ display:block; font-size:10px; letter-spacing:1px; text-transform:uppercase; opacity:.75; margin-bottom:6px; font-weight:600; }
+  /* Typing indicator (three bouncing dots) — used for the "…thinking" bubble. */
+  .typing{ display:inline-flex; align-items:center; gap:5px; padding:4px 2px; }
+  .typing span{
+    width:7px; height:7px; border-radius:50%;
+    background:var(--on-surface-var);
+    animation:typing-bounce 1.2s ease-in-out infinite;
+  }
+  .typing span:nth-child(2){ animation-delay:.15s; }
+  .typing span:nth-child(3){ animation-delay:.3s; }
+  @keyframes typing-bounce{
+    0%, 60%, 100%{ transform:translateY(0); opacity:.4; }
+    30%{ transform:translateY(-4px); opacity:1; }
+  }
 
   /* A proposed command inside an AI message — never auto-runs. */
   .run{
@@ -2375,6 +2388,12 @@ function addMessage(role, content){
   }else if(role === "error"){
     div.className = "msg err";
     div.textContent = content;
+  }else if(role === "thinking"){
+    div.className = "msg ai";
+    div.appendChild(roleTag("DAI-LITE"));
+    const t = document.createElement("div"); t.className = "typing";
+    t.innerHTML = "<span></span><span></span><span></span>";
+    div.appendChild(t);
   }else{
     div.className = "msg note";
     div.textContent = content;
@@ -2433,7 +2452,7 @@ async function runAiTurn(){
   if(!s.baseUrl){ addMessage("error", "Set an AI Base URL in ⚙️ Settings first."); return; }
 
   aiBusy = true;
-  const thinking = addMessage("note", "…thinking");
+  const thinking = addMessage("thinking");
   const wantStream = s.streaming && !streamBroken;
   try{
     // Persona depends on the mode (unless the user set a custom persona), and
