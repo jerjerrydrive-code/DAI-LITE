@@ -2196,7 +2196,11 @@ function loadConvo(){
 /* ---- Long-term memory (localStorage) ---- */
 const MEMORY_KEY = "dailite_memory";
 function getMemory(){ try{ return localStorage.getItem(MEMORY_KEY) || ""; }catch(_){ return ""; } }
-function setMemory(v){ try{ localStorage.setItem(MEMORY_KEY, v || ""); }catch(_){} }
+function setMemory(v){
+  try{ localStorage.setItem(MEMORY_KEY, v || ""); }catch(_){}
+  // Refresh the mode tag so its "🧠 N facts" hint stays in sync.
+  if(typeof document !== "undefined" && document.getElementById && document.getElementById("modeTag")) updateModeUI();
+}
 function persistMemory(facts){
   if(!facts || !facts.length) return;
   setMemory(appendMemory(getMemory(), facts));
@@ -2243,7 +2247,16 @@ function updateModeUI(){
     daiBtn.setAttribute("aria-selected", dai ? "true" : "false");
   }
   const tag = $("modeTag");
-  if(tag) tag.textContent = dai ? "· Dai — companion" : "· Lite — Flipper co-pilot";
+  if(tag){
+    // Dai mode: append a "🧠 N facts" hint so the user can see the assistant
+    // actually has memory to draw on. Lite mode's persona doesn't lean on it.
+    const memCount = getMemory().split("\n").map(x => x.trim()).filter(Boolean).length;
+    const memBit = (dai && memCount) ? "  ·  🧠 " + memCount + " fact" + (memCount === 1 ? "" : "s") : "";
+    tag.textContent = (dai ? "· Dai — companion" : "· Lite — Flipper co-pilot") + memBit;
+    tag.title = memCount
+      ? "Long-term memory: " + memCount + " fact" + (memCount === 1 ? "" : "s") + " loaded into the system prompt."
+      : "Long-term memory is empty. Say REMEMBER: something to teach the assistant.";
+  }
 }
 
 /* ---- Terminal panel ---- */
