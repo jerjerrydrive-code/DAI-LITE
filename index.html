@@ -2759,7 +2759,8 @@ function addMessage(role, content){
   const chat = $("chat"); if(!chat) return null;
   // First real message removes the empty-state welcome card.
   const empty = chat.querySelector(".empty"); if(empty) empty.remove();
-  const shouldFollow = chatNearBottom(chat);
+  // Always follow the user's own turn; for others, only if already near bottom.
+  const shouldFollow = role === "user" || chatNearBottom(chat);
   const div = document.createElement("div");
   if(role === "user"){
     div.className = "msg user";
