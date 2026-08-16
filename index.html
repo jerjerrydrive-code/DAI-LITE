@@ -490,6 +490,25 @@
   .palette-item .hint{ color:var(--on-surface-dim); font-size:12px; font-family:var(--mono); }
   .palette-empty{ padding:32px 20px; text-align:center; color:var(--on-surface-dim); font-size:13px; }
 
+  /* M3 segmented button (two-way pick). Both slots share a rounded pill. */
+  .seg{ display:inline-flex; border:1px solid var(--outline); border-radius:999px; overflow:hidden; background:transparent; }
+  .seg-btn{
+    position:relative; overflow:hidden;
+    appearance:none; border:none; background:transparent; color:var(--on-surface);
+    padding:7px 16px; font-size:13px; font-weight:500; cursor:pointer;
+    transition:background .12s, color .12s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .seg-btn::before{
+    content:""; position:absolute; inset:0; background:currentColor; opacity:0; transition:opacity .12s;
+  }
+  .seg-btn:hover::before{ opacity:var(--state-hover); }
+  .seg-btn[aria-selected="true"]{
+    background:var(--secondary-container); color:var(--on-secondary-container);
+    font-weight:600;
+  }
+  .seg-btn + .seg-btn{ border-left:1px solid var(--outline); }
+
   /* Command-palette discovery hint in the top bar */
   .kbd-hint{
     display:inline-flex; align-items:center; gap:8px;
@@ -548,7 +567,10 @@
       <div class="logo">DL</div>
       <h1>DAI&#8209;LITE <small>· AI for BLE gear</small></h1>
     </div>
-    <button id="modeBtn" class="btn" title="Switch mode">Lite</button>
+    <div class="seg" role="tablist" aria-label="Mode">
+      <button id="modeLite" class="seg-btn" data-mode="lite" role="tab" aria-selected="true" title="Lite — Flipper co-pilot">Lite</button>
+      <button id="modeDai"  class="seg-btn" data-mode="dai"  role="tab" aria-selected="false" title="Dai — companion + memory">Dai</button>
+    </div>
     <div class="spacer"></div>
     <button id="cmdKBtn" class="kbd-hint" title="Command palette (Ctrl+K)" aria-label="Open command palette">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
@@ -1776,12 +1798,12 @@ function setMode(mode){
   updateModeUI();
 }
 function updateModeUI(){
-  const b = $("modeBtn"); if(!b) return;
   const dai = getSettings().mode === "dai";
-  b.textContent = dai ? "Dai" : "Lite";
-  b.classList.toggle("on", dai);
-  b.title = dai ? "Dai mode — companion + memory. Tap for Lite."
-                : "Lite mode — Flipper coding co-pilot. Tap for Dai.";
+  const lite = $("modeLite"), daiBtn = $("modeDai");
+  if(lite && daiBtn){
+    lite.setAttribute("aria-selected", dai ? "false" : "true");
+    daiBtn.setAttribute("aria-selected", dai ? "true" : "false");
+  }
   const tag = $("modeTag");
   if(tag) tag.textContent = dai ? "· Dai — companion" : "· Lite — Flipper co-pilot";
 }
@@ -3312,7 +3334,9 @@ function wire(){
   });
   $("personaDefault").addEventListener("click", () => { $("setPersona").value = personaForMode(getSettings().mode); });
   $("easySetup").addEventListener("click", easySetup);
-  $("modeBtn").addEventListener("click", () => setMode(getSettings().mode === "dai" ? "lite" : "dai"));
+  ["modeLite", "modeDai"].forEach(id => {
+    const b = $(id); if(b) b.addEventListener("click", () => setMode(b.dataset.mode));
+  });
   $("memoryClear").addEventListener("click", () => { $("setMemory").value = ""; setMemory(""); renderConnections(); });
   $("memoryToFlipper").addEventListener("click", () => { setMemory($("setMemory").value); saveMemoryToFlipper(); });
   $("memoryFromFlipper").addEventListener("click", loadMemoryFromFlipper);
