@@ -2003,6 +2003,18 @@ function getSettings(){
   catch(_){ return normalizeSettings(null); }
 }
 
+/* ---- Chat history (localStorage; last 60 msgs so it stays small) ---- */
+const CONVO_KEY = "dailite_conversation";
+function saveConvo(){
+  try{
+    const trimmed = conversation.slice(-60);   // last 60 turns
+    localStorage.setItem(CONVO_KEY, JSON.stringify(trimmed));
+  }catch(_){}
+}
+function loadConvo(){
+  try{ return JSON.parse(localStorage.getItem(CONVO_KEY)) || []; }catch(_){ return []; }
+}
+
 /* ---- Long-term memory (localStorage) ---- */
 const MEMORY_KEY = "dailite_memory";
 function getMemory(){ try{ return localStorage.getItem(MEMORY_KEY) || ""; }catch(_){ return ""; } }
@@ -2020,6 +2032,7 @@ function renderAndSpeak(reply, alreadyRendered){
   const clean = text.trim();
   if(!clean) return "";
   conversation.push({ role:"assistant", content:clean });
+  saveConvo();
   if(!alreadyRendered) addMessage("assistant", clean);
   speak(pronounceForSpeech(stripRunLines(clean)));
   return clean;
@@ -2782,6 +2795,7 @@ let streamBroken = false; // provider gave unusable SSE — stop trying this ses
 async function askAI(userText){
   if(aiBusy){ addMessage("note", "Still working on the previous message — one moment."); return; }
   conversation.push({ role:"user", content:userText });
+  saveConvo();
   addMessage("user", userText);
   await runAiTurn();
 }
@@ -2794,6 +2808,7 @@ function sendCapturedOutput(){
   if(!out){ addMessage("note", "No device output captured yet — run a command first."); return; }
   const content = formatDeviceOutput(lastCommand, out);
   conversation.push({ role:"user", content });
+  saveConvo();
   // Render compactly so a big dump doesn't dominate the chat.
   addMessage("note", "Sent device output" + (lastCommand ? " for `" + lastCommand + "`" : "") + " to the assistant.");
   captureBuffer = ""; refreshToAiBtn();   // consumed — hide the button again
@@ -3619,6 +3634,7 @@ function renderQuickCommands(){
 function newChat(){
   if(aiBusy){ snack("Finishing the current reply — tap New chat again in a moment.", "info"); return; }
   conversation = [];                 // fresh context; long-term memory is untouched
+  try{ localStorage.removeItem(CONVO_KEY); }catch(_){}
   const chat = $("chat"); if(chat) chat.textContent = "";
   stopSpeaking();
   renderChatEmptyState();
@@ -3798,7 +3814,14 @@ function boot(){
   renderQuickCommands();
   setConnected(false, "");    // paints the Connect icon based on the saved transport
   maybeShowSafety();
-  renderChatEmptyState();
+  // Restore prior conversation if any; else show the empty state.
+  const saved = loadConvo();
+  if(saved.length){
+    conversation = saved;
+    for(const m of saved){ addMessage(m.role, m.content); }
+  }else{
+    renderChatEmptyState();
+  }
 }
 if(typeof document !== "undefined" && document.getElementById && document.getElementById("term")){
   boot();
