@@ -470,8 +470,12 @@
     <button id="modeBtn" class="btn" title="Switch mode">Lite</button>
     <div class="spacer"></div>
     <div id="status" class="status"><span class="dot"></span><span class="txt">Disconnected</span></div>
-    <button id="muteBtn" class="btn icon" title="Mute / unmute the assistant voice">🔊</button>
-    <button id="settingsBtn" class="btn icon" title="Provider & device settings">⚙️</button>
+    <button id="muteBtn" class="btn icon" title="Mute / unmute the assistant voice" aria-label="Toggle voice">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.06A7 7 0 0 1 14 18.74v2.06A9 9 0 0 0 14 3.2z"/></svg>
+    </button>
+    <button id="settingsBtn" class="btn icon" title="Provider & device settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94a7.72 7.72 0 0 0 .05-1 7.72 7.72 0 0 0-.05-1l2.03-1.58a.5.5 0 0 0 .12-.63l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.42 7.42 0 0 0-1.73-1l-.37-2.54A.49.49 0 0 0 13.79 2h-3.84a.49.49 0 0 0-.5.42l-.36 2.54a7.42 7.42 0 0 0-1.74 1l-2.39-.96a.5.5 0 0 0-.6.22L2.44 8.54a.5.5 0 0 0 .12.63l2.03 1.58a7.72 7.72 0 0 0-.05 1 7.72 7.72 0 0 0 .05 1L2.56 14.33a.5.5 0 0 0-.12.63l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96a7.42 7.42 0 0 0 1.74 1l.36 2.54a.49.49 0 0 0 .5.42h3.84a.49.49 0 0 0 .49-.42l.37-2.54a7.42 7.42 0 0 0 1.73-1l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.63zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>
+    </button>
     <button id="connectBtn" class="btn primary">Connect</button>
   </header>
 
@@ -502,7 +506,9 @@ Type a command below or let the assistant propose one.
       <div class="head"><span class="tag ai">Assistant</span><span id="modeTag" class="hint" style="text-transform:none;letter-spacing:0"></span><span class="spacer" style="flex:1"></span><button id="newChat" class="btn icon" title="Start a new conversation (keeps memory)" style="padding:3px 8px;font-size:11px">New chat</button></div>
       <div id="chat"></div>
       <div class="chatbar">
-        <button id="mic" class="btn icon" title="Hold to talk">🎙️</button>
+        <button id="mic" title="Hold to talk" aria-label="Hold to talk">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5.3-3a5.3 5.3 0 0 1-10.6 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-1.7z"/></svg>
+        </button>
         <input id="chatInput" placeholder="Ask the assistant…" autocomplete="off" />
         <button id="chatSend" class="btn primary">Send</button>
       </div>
@@ -3031,10 +3037,12 @@ function newChat(){
 function wire(){
   $("connectBtn").addEventListener("click", toggleConnect);
   $("settingsBtn").addEventListener("click", openSettings);
+  const ICON_VOLUME = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3 10v4a1 1 0 0 0 1 1h3l4 4V5L7 9H4a1 1 0 0 0-1 1zm13.5 2a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.06A7 7 0 0 1 14 18.74v2.06A9 9 0 0 0 14 3.2z"/></svg>';
+  const ICON_MUTE   = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.17v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>';
   $("muteBtn").addEventListener("click", () => {
     muted = !muted;
     if(muted) stopSpeaking();
-    $("muteBtn").textContent = muted ? "🔇" : "🔊";
+    $("muteBtn").innerHTML = muted ? ICON_MUTE : ICON_VOLUME;
     $("muteBtn").classList.toggle("on", muted);
   });
 
