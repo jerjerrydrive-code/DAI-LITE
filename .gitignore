@@ -57,3 +57,7 @@ secrets/
 
 # Crash logs
 crash-reports/
+
+# Python
+__pycache__/
+*.pyc
